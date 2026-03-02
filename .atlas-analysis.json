@@ -1,0 +1,118 @@
+{
+  "projectType": "data-platform",
+  "projectName": "X Recommendation Algorithm",
+  "projectDescription": "X's open-source recommendation algorithm powering For You timelines, notifications, and personalized content across the platform.",
+  "theme": "aspen",
+  "primaryColor": "#1DA1F2",
+  "lightColor": "#64B5F6",
+  "darkColor": "#0D8BD9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "architecture",
+              "how-it-works"
+            ]
+          },
+          {
+            "group": "Core Services",
+            "pages": [
+              "services/home-mixer",
+              "services/cr-mixer",
+              "services/follow-recommendations",
+              "services/pushservice",
+              "services/timelineranker",
+              "services/tweetypie"
+            ]
+          },
+          {
+            "group": "Models & Embeddings",
+            "pages": [
+              "models/simclusters",
+              "models/twhin",
+              "models/real-graph",
+              "models/graph-features",
+              "models/trust-and-safety"
+            ]
+          },
+          {
+            "group": "Machine Learning",
+            "pages": [
+              "ml/navi",
+              "ml/product-mixer",
+              "ml/twml",
+              "ml/ranking",
+              "ml/candidate-generation"
+            ]
+          },
+          {
+            "group": "Data Pipeline",
+            "pages": [
+              "data/unified-user-actions",
+              "data/user-signals",
+              "data/retrieval-signals",
+              "data/aggregation-framework"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/setup",
+              "development/building",
+              "development/contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Services",
+            "pages": [
+              "api/home-mixer-api",
+              "api/cr-mixer-api",
+              "api/frs-api"
+            ]
+          },
+          {
+            "group": "Data Models",
+            "pages": [
+              "api/thrift-definitions",
+              "api/data-records"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "For You timeline generation with ML-powered ranking",
+    "Candidate sourcing from multiple signals (Earlybird, UTEG, GraphJet)",
+    "SimClusters community detection and sparse embeddings",
+    "TwHIN dense knowledge graph embeddings",
+    "Follow recommendations with personalized account suggestions",
+    "Trust and safety models (NSFW, toxicity, abuse detection)",
+    "High-performance ML serving with Navi (Rust)",
+    "Real-time user action streaming and processing",
+    "Product Mixer framework for building content feeds",
+    "Visibility filtering and content quality controls"
+  ],
+  "publicApiSurface": [
+    "HomeMixerServer - Main service for constructing Home Timelines",
+    "CrMixerServer - Candidate generation coordination service",
+    "FollowRecommendationsService - Account follow suggestions",
+    "PushService - Notification recommendations",
+    "NaviPredictService - ML model serving via gRPC",
+    "TweetypieService - Tweet read/write operations",
+    "UserSignalService - User interaction signals",
+    "GraphFeatureService - Graph-based features for user pairs",
+    "RepresentationScorer - Embedding similarity scoring",
+    "TimelineRanker - Legacy relevance scoring service"
+  ]
+}
