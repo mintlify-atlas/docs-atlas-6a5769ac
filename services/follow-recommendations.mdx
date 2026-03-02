@@ -1,0 +1,264 @@
+---
+title: "Follow Recommendations Service"
+description: "Personalized account recommendations and Who-To-Follow suggestions"
+---
+
+## Overview
+
+The Follow Recommendations Service (FRS) is a robust recommendation engine designed to provide users with personalized suggestions for accounts to follow. FRS powers:
+
+- **Who-To-Follow (WTF)** modules across Twitter product surfaces
+- **FutureGraph** tweet recommendations - tweets from accounts users may be interested in following
+- **Post-NUX** (New User Experience) recommendations
+- **Ad targeting** for account promotion
+
+## Architecture
+
+![FRS Architecture](FRS_architecture.png)
+
+FRS is designed to accommodate diverse use cases through a flexible pipeline architecture. Each use case features a unique **display location identifier**.
+
+<Note>
+View all display locations at: `follow-recommendations-service/common/src/main/scala/com/twitter/follow_recommendations/common/models/DisplayLocation.scala`
+</Note>
+
+## Recommendation Flow
+
+FRS implements a comprehensive `RecommendationFlow` that encapsulates all steps from candidate generation to final recommendations:
+
+<Steps>
+  <Step title="Target Eligibility">
+    Determine if the requesting user is eligible for recommendations based on:
+    - Account age and activity level
+    - Current follow count
+    - Engagement history
+    - Safety and quality signals
+  </Step>
+  
+  <Step title="Candidate Generation">
+    Fetch account candidates from multiple sources using various algorithms and user signals
+  </Step>
+  
+  <Step title="Pre-Ranking Filtering">
+    Apply lightweight filters to reduce candidate pool before expensive ranking
+  </Step>
+  
+  <Step title="Feature Hydration & Ranking">
+    Fetch ML features and rank candidates using machine learning models
+  </Step>
+  
+  <Step title="Post-Ranking Transform">
+    Apply transformations like deduplication, social proof attachment, and tracking tokens
+  </Step>
+  
+  <Step title="Heavy Filtering">
+    Apply computationally expensive filters to top-ranked candidates
+  </Step>
+  
+  <Step title="Truncation">
+    Trim to the final number of recommendations for optimal user experience
+  </Step>
+</Steps>
+
+### Flow Implementation
+
+```scala
+trait BaseRecommendationFlow[Target, Candidate <: UniversalNoun[Long]] {
+  val identifier = RecommendationPipelineIdentifier("RecommendationFlow")
+  
+  def process(
+    pipelineRequest: Target
+  ): Stitch[RecommendationPipelineResult[Candidate, Seq[Candidate]]]
+}
+```
+
+*Source: follow-recommendations-service/common/src/main/scala/com/twitter/follow_recommendations/common/base/RecommendationFlow.scala:19*
+
+## Candidate Generation
+
+FRS utilizes various user signals and algorithms to identify candidates from all Twitter accounts.
+
+### Candidate Sources
+
+<CardGroup cols={2}>
+  <Card title="Social Graph" icon="users">
+    Friends-of-friends and mutual connections
+  </Card>
+  <Card title="Topic Interests" icon="hashtag">
+    Accounts matching user's followed topics
+  </Card>
+  <Card title="Engagement Graph" icon="heart">
+    Accounts from tweets user engaged with
+  </Card>
+  <Card title="Geo-based" icon="location-dot">
+    Popular accounts in user's location
+  </Card>
+  <Card title="Similar Users" icon="user-group">
+    Collaborative filtering recommendations
+  </Card>
+  <Card title="New & Notable" icon="star">
+    Trending and emerging accounts
+  </Card>
+</CardGroup>
+
+<Note>
+Candidate sources are located at: `follow-recommendations-service/common/src/main/scala/com/twitter/follow_recommendations/common/candidate_sources/`
+</Note>
+
+## Filtering
+
+FRS applies different filtering logic after generating candidates to improve quality and health.
+
+### Pre-Ranking Filters (Lightweight)
+
+Applied before ranking to reduce candidate set:
+- Basic safety filters (blocked, muted accounts)
+- Already following check
+- Account status validation (suspended, deactivated)
+- Minimum follower threshold
+
+### Post-Ranking Filters (Heavy)
+
+Applied after ranking to top candidates:
+- Advanced safety and quality checks
+- Engagement prediction thresholds
+- Content diversity validation
+- Fatigue management (recently dismissed accounts)
+
+<Warning>
+Heavier filtering logic with higher latency is typically applied after the ranking step to minimize computational cost.
+</Warning>
+
+## Ranking
+
+FRS employs both Machine Learning and heuristic rule-based ranking:
+
+### Feature Hydration
+
+Before ML ranking, features are fetched for each `<user, candidate>` pair:
+
+- **User Features**: Demographics, engagement patterns, interests
+- **Candidate Features**: Account age, follower count, engagement rate
+- **Edge Features**: Mutual connections, topic overlap, geographic proximity
+
+### ML Ranking Model
+
+```scala
+// DataRecord construction for ML model
+val dataRecord = buildDataRecord(
+  user = targetUser,
+  candidate = accountCandidate,
+  features = hydratedFeatures
+)
+
+// Get prediction from ML service
+val score = mlPredictionService.predict(dataRecord)
+```
+
+The ML model predicts a weighted combination:
+
+$$
+\text{score} = w_1 \cdot P(\text{follow} | \text{recommendation}) + w_2 \cdot P(\text{engagement} | \text{follow})
+$$
+
+Where:
+- `P(follow|recommendation)` - Probability user will follow if recommended
+- `P(engagement|follow)` - Probability of positive engagement after following
+
+<Note>
+Rankers are located at: `follow-recommendations-service/common/src/main/scala/com/twitter/follow_recommendations/common/rankers`
+</Note>
+
+## Transform
+
+After ranking, candidates undergo necessary transformations:
+
+### Deduplication
+Remove duplicate accounts that may have come from multiple sources.
+
+### Social Proof
+Attach context like "Followed by [mutual connection]" to increase relevance.
+
+### Tracking Tokens
+Add tokens for attribution and analytics.
+
+### Formatting
+Format candidates according to display location requirements.
+
+<Note>
+Transformers are located at: `follow-recommendations-service/common/src/main/scala/com/twitter/follow_recommendations/common/transforms`
+</Note>
+
+## Display Locations
+
+FRS serves recommendations across multiple Twitter surfaces:
+
+### Home Timeline
+- Who-to-follow module in timeline
+- FutureGraph tweet authors
+
+### Profile Pages
+- Similar accounts module
+- "You might also like" suggestions
+
+### Onboarding
+- Post-NUX account recommendations
+- Interest-based account selection
+
+### Search
+- Account suggestions in search results
+- Related accounts for searched profiles
+
+## Products and Flows
+
+Each product (corresponding to a display location) can select one or multiple flows:
+
+```scala
+// Example product configuration
+case class HomeTimelineTweetRecsProduct(
+  displayLocation: DisplayLocation,
+  flows: Seq[RecommendationFlow]
+) extends Product
+```
+
+<Note>
+View all products at: `follow-recommendations-service/server/src/main/scala/com/twitter/follow_recommendations/products/`
+</Note>
+
+## Performance Optimization
+
+### Caching Strategy
+- Cache candidate generation results
+- Cache feature hydration for popular accounts
+- Cache ML model predictions for common user-candidate pairs
+
+### Batching
+- Batch feature hydration calls
+- Batch ML prediction requests
+- Batch filtering operations
+
+### Parallel Processing
+- Fetch from multiple candidate sources in parallel
+- Parallel feature hydration for candidates
+- Concurrent filtering when possible
+
+## Monitoring and Quality
+
+### Key Metrics
+- **Follow Rate**: % of recommendations that result in follows
+- **Engagement Rate**: Engagement with followed accounts
+- **Diversity**: Variety in recommended account types
+- **Latency**: Time to generate recommendations
+
+### A/B Testing
+FRS supports extensive A/B testing for:
+- New candidate sources
+- Ranking model changes
+- Filter adjustments
+- UI/UX variations
+
+## Related Services
+
+- [Home Mixer](/services/home-mixer) - Uses FRS for Who-to-Follow modules and FutureGraph tweets
+- [CR Mixer](/services/cr-mixer) - Complementary tweet candidate generation
+- [Pushservice](/services/pushservice) - Uses FRS for account recommendation notifications

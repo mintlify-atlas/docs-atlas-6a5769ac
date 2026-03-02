@@ -1,0 +1,320 @@
+---
+title: "Pushservice"
+description: "Push notification recommendation service for personalized user notifications"
+---
+
+## Overview
+
+Pushservice is the main push recommendation service at Twitter, responsible for generating recommendation-based notifications for users. It determines when to send push notifications, what content to recommend, and manages the delivery to users.
+
+## Core Functionalities
+
+Pushservice provides two main handlers:
+
+<CardGroup cols={2}>
+  <Card title="RefreshForPushHandler" icon="refresh">
+    Determines whether to send a recommendation push to a user and generates the best push recommendation item
+  </Card>
+  <Card title="SendHandler" icon="paper-plane">
+    Manages whether to send the push based on target user details and provided recommendation item
+  </Card>
+</CardGroup>
+
+## RefreshForPushHandler Pipeline
+
+The primary handler for generating push notifications follows a comprehensive pipeline:
+
+<Steps>
+  <Step title="Build Target & Check Eligibility">
+    - Build a target user object based on the given user ID
+    - Perform target-level filtering to determine if the user is eligible for a recommendation push
+    - Check user notification settings, fatigue, and activity patterns
+  </Step>
+  
+  <Step title="Fetch Candidates">
+    Retrieve a list of potential candidates for the push by querying various candidate sources:
+    - Tweet recommendations
+    - Account recommendations
+    - Trending topics
+    - Event-based notifications
+  </Step>
+  
+  <Step title="Candidate Hydration">
+    Hydrate candidate details with batch calls to different downstream services:
+    - Tweet metadata from Tweetypie
+    - User information from User Service
+    - Engagement data from various sources
+  </Step>
+  
+  <Step title="Pre-Rank Filtering (Light Filtering)">
+    Filter hydrated candidates with lightweight RPC calls:
+    - Basic quality checks
+    - User preference filters
+    - Duplicate detection
+  </Step>
+  
+  <Step title="Ranking">
+    Multi-stage ranking process:
+    - Feature hydration for candidates and target user
+    - Light ranking to reduce candidate pool
+    - Heavy ranking using ML models to predict engagement
+  </Step>
+  
+  <Step title="Take Step (Heavy Filtering)">
+    Take top-ranked candidates one by one and apply heavy filtering until one candidate passes all filter steps:
+    - Advanced safety checks
+    - Fatigue management
+    - Notification quality thresholds
+  </Step>
+  
+  <Step title="Send">
+    Call the appropriate downstream service to deliver the eligible candidate as a push and in-app notification to the target user
+  </Step>
+</Steps>
+
+### Handler Implementation
+
+```scala
+class RefreshForPushHandler(
+  val pushTargetUserBuilder: PushTargetUserBuilder,
+  val candSourceGenerator: PushCandidateSourceGenerator,
+  rfphRanker: RFPHRanker,
+  candidateHydrator: PushCandidateHydrator,
+  candidateValidator: RFPHCandidateValidator,
+  rfphTakeStepUtil: RFPHTakeStepUtil,
+  rfphRestrictStep: RFPHRestrictStep,
+  val rfphNotifier: RefreshForPushNotifier,
+  rfphStatsRecorder: RFPHStatsRecorder,
+  mrRequestScriberNode: String,
+  rfphFeatureHydrator: RFPHFeatureHydrator,
+  rfphPrerankFilter: RFPHPrerankFilter,
+  rfphLightRanker: RFPHLightRanker
+)(
+  globalStats: StatsReceiver)
+    extends FetchRankFlowWithHydratedCandidates[Target, RawCandidate, PushCandidate]
+```
+
+*Source: pushservice/src/main/scala/com/twitter/frigate/pushservice/refresh_handler/RefreshForPushHandler.scala:33*
+
+## SendHandler Pipeline
+
+A simplified handler for sending pre-determined push recommendations:
+
+<Steps>
+  <Step title="Build Target">
+    Build a target user object based on the given user ID
+  </Step>
+  
+  <Step title="Candidate Hydration">
+    Hydrate the candidate details with batch calls to different downstream services
+  </Step>
+  
+  <Step title="Feature Hydration">
+    Perform feature hydration for candidates and target user
+  </Step>
+  
+  <Step title="Heavy Filtering">
+    Perform filtering and validation checking for the given candidate
+  </Step>
+  
+  <Step title="Send">
+    Call the appropriate downstream service to deliver the candidate as a push and/or in-app notification
+  </Step>
+</Steps>
+
+## Candidate Sources
+
+Pushservice integrates with multiple candidate sources through adaptors:
+
+### Tweet Candidates
+- **ContentRecommenderMixerAdaptor** - CR-Mixer tweet recommendations
+- **EarlyBirdFirstDegreeCandidateAdaptor** - Search index tweet candidates
+- **FRSTweetCandidateAdaptor** - Follow Recommendations Service tweet authors
+- **HighQualityTweetsAdaptor** - Curated high-quality content
+- **ExploreVideoTweetCandidateAdaptor** - Video content from Explore
+
+### Non-Tweet Candidates
+- **ListsToRecommendCandidateAdaptor** - List recommendations
+- **GenericCandidateAdaptor** - Generic notification types
+- **LoggedOutPushCandidateSourceGenerator** - Logged-out user notifications
+
+<Note>
+Adaptors are located at: `pushservice/src/main/scala/com/twitter/frigate/pushservice/adaptor/`
+</Note>
+
+## Ranking Models
+
+Pushservice uses a two-stage ranking approach:
+
+### Light Ranking
+
+Fast, lightweight models to quickly filter candidates:
+- Low-latency feature set (< 100 features)
+- Simple models (logistic regression, small trees)
+- Quick engagement predictions
+- Target: p99 latency < 50ms
+
+### Heavy Ranking
+
+Deep learning models for precise engagement prediction:
+- Comprehensive feature set (~1000+ features)
+- Complex neural networks
+- Detailed engagement probability scores
+- Multiple prediction targets:
+  - Click probability
+  - Positive engagement probability
+  - Negative action probability
+
+<Note>
+Ranking model implementations:
+- Light ranking: `pushservice/src/main/python/models/light_ranking/`
+- Heavy ranking: `pushservice/src/main/python/models/heavy_ranking/`
+</Note>
+
+## Filtering Strategy
+
+### Pre-Rank Filters (Light)
+
+Applied to all candidates before ranking:
+
+```scala
+class RFPHPrerankFilter(
+  // Filter configurations
+) {
+  def apply(candidates: Seq[Candidate]): Seq[Candidate] = {
+    candidates
+      .filter(isNotDuplicate)
+      .filter(meetsBasicQuality)
+      .filter(userHasNotOptedOut)
+      .filter(isWithinTimeWindow)
+  }
+}
+```
+
+### Post-Rank Filters (Heavy)
+
+Applied to top-ranked candidates:
+- Advanced safety and quality checks
+- Fatigue management (frequency capping)
+- User preference validation
+- Time-of-day optimization
+- Device and platform checks
+
+<Warning>
+The Take Step applies heavy filters sequentially to top candidates until one passes all checks. This ensures at most one notification is sent per refresh cycle.
+</Warning>
+
+## Notification Types
+
+Pushservice supports various notification types:
+
+<CardGroup cols={2}>
+  <Card title="Tweet Recommendations" icon="message">
+    Tweets the user might be interested in
+  </Card>
+  <Card title="Account Recommendations" icon="user-plus">
+    Suggested accounts to follow
+  </Card>
+  <Card title="Engagement Notifications" icon="heart">
+    Likes, retweets, mentions from network
+  </Card>
+  <Card title="Trending Topics" icon="fire">
+    Trending conversations and events
+  </Card>
+  <Card title="Lists" icon="list">
+    Recommended lists to join or follow
+  </Card>
+  <Card title="Spaces" icon="podcast">
+    Live audio conversations
+  </Card>
+</CardGroup>
+
+## Eligibility Checks
+
+Before generating candidates, Pushservice validates target eligibility:
+
+### User-Level Checks
+- Notification settings and preferences
+- Push enabled for device
+- Not in quiet hours
+- Below daily notification quota
+- Sufficient time since last notification
+
+### Account-Level Checks
+- Account in good standing
+- Not suspended or restricted
+- Email/phone verified (for certain notification types)
+- Meets minimum activity threshold
+
+## Feature Hydration
+
+Comprehensive feature extraction for ranking:
+
+### User Features
+- Engagement history and patterns
+- Notification response rates
+- Active hours and timezone
+- Language and location
+- Account age and follower count
+
+### Candidate Features
+- Tweet/account engagement metrics
+- Recency and virality
+- Content type and media presence
+- Author reputation and quality
+
+### Contextual Features
+- Time of day and day of week
+- Device type and OS
+- Network connection quality
+- User's current activity state
+
+## Performance Optimization
+
+### Batching Strategy
+```scala
+// Batch candidate hydration
+val hydratedCandidates = candidateHydrator.hydrate(
+  candidates = candidates,
+  batchSize = 100,
+  timeout = 200.milliseconds
+)
+```
+
+### Caching
+- Cache user eligibility checks
+- Cache frequently accessed features
+- Cache model predictions for similar candidates
+
+### Parallel Processing
+- Parallel candidate source fetching
+- Concurrent feature hydration
+- Parallel filter evaluation where possible
+
+## Monitoring and Analytics
+
+### Key Metrics
+- **Send Rate**: Notifications sent per eligible user
+- **Click-Through Rate (CTR)**: User engagement with notifications
+- **Opt-Out Rate**: Users disabling notifications
+- **Latency**: Time from trigger to notification delivery
+- **Candidate Funnel**: Drop-off at each pipeline stage
+
+### Logging and Debugging
+```scala
+val rfphStatsRecorder: RFPHStatsRecorder = new RFPHStatsRecorder(
+  statsReceiver = statsReceiver.scope("RefreshForPushHandler")
+)
+
+// Record metrics at each stage
+rfphStatsRecorder.recordCandidates(candidates)
+rfphStatsRecorder.recordFiltered(filtered)
+rfphStatsRecorder.recordSent(sent)
+```
+
+## Related Services
+
+- [CR Mixer](/services/cr-mixer) - Tweet candidate generation
+- [Follow Recommendations Service](/services/follow-recommendations) - Account recommendations
+- [Tweetypie](/services/tweetypie) - Tweet data hydration
+- [Home Mixer](/services/home-mixer) - Timeline recommendations

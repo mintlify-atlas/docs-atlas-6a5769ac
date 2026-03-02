@@ -1,0 +1,329 @@
+---
+title: Building and Testing
+description: Learn how to build and test the X Recommendation Algorithm using Bazel
+---
+
+## Overview
+
+The X Recommendation Algorithm uses Bazel as its build system. Bazel provides fast, reproducible builds and manages dependencies across the entire monorepo.
+
+<Note>
+The repository includes Bazel BUILD files for most components, but not a top-level BUILD or WORKSPACE file. A more complete build and test system is planned for the future.
+</Note>
+
+## Understanding Bazel
+
+Bazel is a build system that builds code from source using BUILD files that define build rules and dependencies.
+
+### Key Concepts
+
+- **BUILD files** - Define build targets and their dependencies
+- **BUILD.bazel files** - Bazel-specific BUILD files (used in this project)
+- **Targets** - A buildable unit (binary, library, test, etc.)
+- **Labels** - Identify build targets (e.g., `//home-mixer:bin`)
+
+### Common Build Rules
+
+- `jvm_binary` - Builds a JVM executable
+- `jvm_app` - Packages a JVM application with resources
+- `scala_library` - Compiles Scala source files
+- `java_library` - Compiles Java source files
+- `py_binary` - Builds a Python executable
+- `rust_binary` - Builds a Rust executable
+
+## Building Components
+
+### Build a Specific Component
+
+To build a specific component, use the `bazel build` command with the target label:
+
+```bash
+# Build Home Mixer
+bazel build //home-mixer:bin
+
+# Build Tweet Mixer
+bazel build //tweet-mixer/server/src/main/scala/com/twitter/tweet_mixer:bin
+
+# Build PushService
+bazel build //pushservice/src/main/scala/com/twitter/frigate/pushservice:bin
+```
+
+### Build All Targets in a Directory
+
+```bash
+# Build all targets in home-mixer
+bazel build //home-mixer/...
+
+# Build all targets in product-mixer
+bazel build //product-mixer/...
+```
+
+### Example: Building Home Mixer
+
+<Steps>
+  <Step title="Navigate to Repository Root">
+    ```bash
+    cd the-algorithm
+    ```
+  </Step>
+
+  <Step title="Build the Home Mixer Binary">
+    ```bash
+    bazel build //home-mixer:bin
+    ```
+    
+    This command:
+    - Compiles all Scala source files
+    - Resolves and downloads dependencies
+    - Creates an executable binary
+  </Step>
+
+  <Step title="Locate the Output">
+    The built binary will be in:
+    ```bash
+    bazel-bin/home-mixer/bin
+    ```
+  </Step>
+</Steps>
+
+### Building Machine Learning Models
+
+Many ML models are in Python and located under `src/python/` and component-specific directories:
+
+```bash
+# Build light ranker model
+bazel build //src/python/twitter/deepbird/projects/timelines/scripts/models/earlybird:light_ranker
+
+# Build heavy ranker (see the-algorithm-ml repository)
+# The heavy ranker is in a separate repository
+```
+
+### Building Navi (Rust)
+
+The Navi model serving component is written in Rust:
+
+```bash
+# Build Navi components
+bazel build //navi/...
+```
+
+## Testing
+
+### Running Tests
+
+Run tests using `bazel test`:
+
+```bash
+# Run all tests in a component
+bazel test //home-mixer/...
+
+# Run a specific test
+bazel test //unified_user_actions/service/src/test/scala/com/twitter/unified_user_actions/service:tests
+
+# Run tests with specific tags
+bazel test --test_tag_filters=unit //...
+```
+
+### Test Targets
+
+Test targets are typically located in `src/test/` directories:
+
+```bash
+# Example test paths
+//home-mixer/server/src/test/scala/...
+//product-mixer/core/src/test/scala/...
+//unified_user_actions/service/src/test/scala/...
+```
+
+### Running a Test Suite
+
+<Steps>
+  <Step title="Find Test Targets">
+    Query available test targets:
+    ```bash
+    bazel query 'tests(//home-mixer/...)'
+    ```
+  </Step>
+
+  <Step title="Run the Tests">
+    ```bash
+    bazel test //home-mixer/server/src/test/scala/...
+    ```
+  </Step>
+
+  <Step title="View Test Results">
+    Test results and logs are in:
+    ```bash
+    bazel-testlogs/
+    ```
+  </Step>
+</Steps>
+
+## Querying the Build Graph
+
+### Find Build Targets
+
+Use `bazel query` to explore the build graph:
+
+```bash
+# List all targets
+bazel query //...
+
+# Find all binaries
+bazel query 'kind(".*_binary", //...)'
+
+# Find dependencies of a target
+bazel query 'deps(//home-mixer:bin)'
+
+# Find reverse dependencies
+bazel query 'rdeps(//..., //product-mixer/core/...)'
+
+# Find all tests
+bazel query 'tests(//...)'
+```
+
+### Visualize Dependencies
+
+Generate a dependency graph:
+
+```bash
+# Generate graphviz output
+bazel query 'deps(//home-mixer:bin)' --output graph > deps.dot
+
+# Convert to image (requires graphviz)
+dot -Tpng deps.dot -o deps.png
+```
+
+## Build Options and Optimization
+
+### Common Build Flags
+
+```bash
+# Use all available CPU cores
+bazel build --jobs=auto //home-mixer:bin
+
+# Compile with optimizations
+bazel build -c opt //home-mixer:bin
+
+# Build with debug symbols
+bazel build -c dbg //home-mixer:bin
+
+# Verbose output
+bazel build --verbose_failures //home-mixer:bin
+```
+
+### Incremental Builds
+
+Bazel automatically performs incremental builds by caching results:
+
+```bash
+# First build (full compilation)
+bazel build //home-mixer:bin
+
+# Subsequent builds (only changed files)
+bazel build //home-mixer:bin  # Much faster!
+```
+
+### Clean Build Cache
+
+If you need to clean the build cache:
+
+```bash
+# Clean build outputs
+bazel clean
+
+# Deep clean (removes all cached data)
+bazel clean --expunge
+```
+
+## Building Specific Products
+
+### For You Timeline
+
+The For You Timeline requires multiple components:
+
+```bash
+# Home Mixer (main service)
+bazel build //home-mixer:bin
+
+# Tweet Mixer (out-of-network candidates)
+bazel build //tweet-mixer/...
+
+# Follow Recommendations Service
+bazel build //follow-recommendations-service/...
+
+# Visibility filters
+bazel build //visibilitylib/...
+```
+
+### Recommended Notifications
+
+```bash
+# PushService (main service)
+bazel build //pushservice:bin
+
+# Light ranker model
+bazel build //pushservice/src/main/python/models/light_ranking:light_ranker
+
+# Heavy ranker model
+bazel build //pushservice/src/main/python/models/heavy_ranking:heavy_ranker
+```
+
+## Troubleshooting
+
+### Build Failures
+
+<AccordionGroup>
+  <Accordion title="Missing dependencies">
+    If Bazel reports missing dependencies, try:
+    ```bash
+    bazel sync
+    bazel build //your-target
+    ```
+  </Accordion>
+
+  <Accordion title="Out of memory errors">
+    Limit Bazel's memory usage:
+    ```bash
+    bazel build --local_ram_resources=4096 //your-target
+    ```
+  </Accordion>
+
+  <Accordion title="Stale build artifacts">
+    Clean and rebuild:
+    ```bash
+    bazel clean
+    bazel build //your-target
+    ```
+  </Accordion>
+
+  <Accordion title="Java version mismatch">
+    Ensure Java 11 is being used:
+    ```bash
+    export JAVA_HOME=/path/to/jdk11
+    bazel build //your-target
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Tips
+
+1. **Use remote caching** - If available, configure Bazel remote cache for faster builds
+2. **Build specific targets** - Avoid building `//...` unless necessary
+3. **Use incremental builds** - Don't clean unless you have to
+4. **Leverage parallelism** - Use `--jobs=auto` to utilize all CPU cores
+5. **Monitor build times** - Use `--profile` to identify slow build steps
+
+```bash
+# Profile a build
+bazel build --profile=profile.log //home-mixer:bin
+
+# Analyze the profile
+bazel analyze-profile profile.log
+```
+
+## Next Steps
+
+- Read the [contributing guidelines](/development/contributing) to submit changes
+- Explore component-specific README files in the repository
+- Check the [architecture documentation](https://blog.x.com/engineering/en_us/topics/open-source/2023/twitter-recommendation-algorithm) for system design details

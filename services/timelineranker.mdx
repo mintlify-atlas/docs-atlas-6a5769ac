@@ -1,0 +1,284 @@
+---
+title: "Timeline Ranker"
+description: "Legacy service providing relevance-scored tweets from search and graph sources"
+---
+
+## Overview
+
+TimelineRanker (TLR) is a legacy service that provides relevance-scored tweets from the Earlybird Search Index and User Tweet Entity Graph (UTEG) service. Despite its name, it **no longer performs heavy ranking or model-based ranking itself**; it only uses relevance scores from the Search Index for ranked tweet endpoints.
+
+<Note>
+TimelineRanker is considered a legacy service. Most heavy ranking logic has moved to Home Mixer and other modern services. TLR now primarily serves as a candidate source.
+</Note>
+
+## Architecture
+
+TimelineRanker acts as an intermediary between high-level timeline services and low-level data sources:
+
+```
+Home Mixer / Clients
+        ↓
+  TimelineRanker
+        ↓
+    ┌───┴────┬──────────┬────────────┬───────────┐
+    ↓        ↓          ↓            ↓           ↓
+Earlybird  UTEG  SocialGraph  TweetyPie  Manhattan
+```
+
+## Service Dependencies
+
+TimelineRanker interacts with several major services:
+
+<Steps>
+  <Step title="Earlybird Search Index">
+    TimelineRanker calls the Search Index's super root (earlybird-root-superroot) to fetch a list of tweets. This is the primary source for tweet candidates.
+  </Step>
+  
+  <Step title="User Tweet Entity Graph (UTEG)">
+    TimelineRanker calls UTEG to fetch tweets liked by users you follow, enabling social graph-based recommendations.
+  </Step>
+  
+  <Step title="Social Graph Service">
+    TimelineRanker calls Social Graph Service to obtain:
+    - Follow graph relationships
+    - User states (blocked, muted, retweets muted, etc.)
+    - Privacy and visibility settings
+  </Step>
+  
+  <Step title="TweetyPie">
+    TimelineRanker hydrates tweets by calling TweetyPie to post-filter tweets based on hydrated fields and detailed tweet data.
+  </Step>
+  
+  <Step title="Manhattan">
+    TimelineRanker hydrates some tweet features (e.g., user languages) from Manhattan, Twitter's distributed key-value store.
+  </Step>
+</Steps>
+
+## Use Cases
+
+TimelineRanker primarily serves **Home Mixer**:
+
+### For You Timeline
+- Fetch tweet candidates from Earlybird Search Index
+- Fetch tweets from User Tweet Entity Graph (UTEG)
+- Perform light ranking based on Earlybird scores
+- Truncate to requested number of candidates
+
+### Following Timeline
+- Fetch reverse chronological tweets from followed accounts
+- Apply basic filtering and hydration
+- Return candidates to Home Mixer for final presentation
+
+<Warning>
+TimelineRanker performs **light ranking only**, based on relevance scores already computed by the Earlybird Search Index. Heavy ML-based ranking is performed downstream by Home Mixer.
+</Warning>
+
+## Core Functionality
+
+### Tweet Fetching
+
+TimelineRanker fetches tweets from two primary sources:
+
+#### Earlybird Search Index
+```scala
+// Fetch tweets from search index
+val searchResults = earlybirdClient.getTweets(
+  userId = targetUserId,
+  maxCount = 500,
+  sinceId = cursorId,
+  filters = SearchFilters(includeRetweets = true)
+)
+```
+
+#### User Tweet Entity Graph (UTEG)
+```scala
+// Fetch liked tweets from follow graph
+val utegResults = utegClient.getLikedTweets(
+  userId = targetUserId,
+  followedUserIds = followGraph,
+  maxCount = 100
+)
+```
+
+### Light Ranking
+
+TimelineRanker applies light ranking based on Earlybird candidate scores:
+
+1. **Extract Earlybird Scores**: Use relevance scores computed by search index
+2. **Apply Time Decay**: Adjust scores based on tweet recency
+3. **Social Context Boost**: Boost tweets with social proof
+4. **Sort and Truncate**: Return top N candidates
+
+```scala
+val rankedCandidates = candidates
+  .map(c => (c, calculateScore(c)))
+  .sortBy(_._2)(Ordering[Double].reverse)
+  .take(requestedCount)
+  .map(_._1)
+```
+
+### Tweet Hydration
+
+After fetching tweets, TimelineRanker hydrates additional data:
+
+<CardGroup cols={2}>
+  <Card title="Tweet Content" icon="file-lines">
+    Full tweet text, media, URLs via TweetyPie
+  </Card>
+  <Card title="Author Data" icon="user">
+    User profile information and metadata
+  </Card>
+  <Card title="Engagement Metrics" icon="chart-line">
+    Likes, retweets, replies counts
+  </Card>
+  <Card title="Safety Signals" icon="shield">
+    Visibility filtering, safety labels
+  </Card>
+</CardGroup>
+
+### Filtering
+
+TimelineRanker applies various filters post-hydration:
+
+```scala
+val filteredTweets = hydratedTweets
+  .filter(!isFromBlockedUser)
+  .filter(!isFromMutedUser)
+  .filter(!hasRetweetsMuted)
+  .filter(meetsVisibilityRules)
+  .filter(!isNSFWWhenFiltered)
+```
+
+## Data Models
+
+Key data structures used by TimelineRanker:
+
+### CandidateTweet
+```scala
+case class CandidateTweet(
+  tweetId: Long,
+  userId: Long,
+  score: Option[Double],
+  sourceTweetId: Option[Long], // For retweets
+  sourceUserId: Option[Long],
+  isRetweet: Boolean,
+  directedAtUserId: Option[Long]
+)
+```
+
+*Source: timelineranker/common/src/main/scala/com/twitter/timelineranker/model/CandidateTweet.scala*
+
+### CandidateTweetsResult
+```scala
+case class CandidateTweetsResult(
+  candidates: Seq[CandidateTweet],
+  sourceSearchResults: Option[Seq[ThriftSearchResult]],
+  sourceUtegResults: Option[Seq[UtegResult]]
+)
+```
+
+*Source: timelineranker/common/src/main/scala/com/twitter/timelineranker/model/CandidateTweetsResult.scala*
+
+## Client Usage
+
+Services integrate with TimelineRanker through the client library:
+
+```scala
+import com.twitter.timelineranker.client.TimelineRankerClient
+
+// Build client
+val timelineRankerClient = TimelineRankerClient.build(
+  serviceIdentifier = "home-mixer",
+  environment = Environment.Prod
+)
+
+// Fetch ranked timeline
+val timeline = timelineRankerClient.getRecycledTweetTimeline(
+  request = RecycledTweetTimelineRequest(
+    userId = userId,
+    maxCount = Some(100),
+    range = Some(TimeRange(fromId, toId))
+  )
+)
+```
+
+*Source: timelineranker/client/builder/src/main/scala/com/twitter/timelineranker/client/TimelineRankerClient.scala*
+
+## Performance Considerations
+
+### Caching Strategy
+- Cache Social Graph data (follow relationships)
+- Cache user states (blocked, muted users)
+- Cache tweet hydration results for popular tweets
+
+### Batch Optimization
+```scala
+// Batch hydrate tweets from TweetyPie
+val hydratedTweets = tweetyPieClient.getTweets(
+  tweetIds = candidateTweetIds,
+  options = GetTweetsOptions(
+    includeCards = true,
+    includeMedia = true,
+    safetyLevel = SafetyLevel.TimelineHomeLatest
+  )
+)
+```
+
+### Timeout Management
+- Set aggressive timeouts for upstream calls
+- Gracefully degrade when services are slow
+- Return partial results when appropriate
+
+<Warning>
+TimelineRanker must maintain low latency (p99 < 200ms) as it's in the critical path for Home Timeline rendering.
+</Warning>
+
+## Migration to Home Mixer
+
+TimelineRanker is being gradually replaced by Home Mixer:
+
+### What Moved to Home Mixer
+- Heavy ML-based ranking
+- Complex candidate mixing logic
+- Advanced filtering and heuristics
+- Product-specific customization
+
+### What Remains in TimelineRanker
+- Candidate fetching from Earlybird
+- UTEG integration
+- Basic tweet hydration
+- Light ranking based on search scores
+
+<Note>
+New features should be built in Home Mixer rather than TimelineRanker. TLR is maintained primarily for backward compatibility and as a candidate source.
+</Note>
+
+## Endpoints
+
+TimelineRanker exposes several Thrift endpoints:
+
+- `getRecycledTweetTimeline` - Fetch ranked tweets for For You timeline
+- `getEntityTweets` - Fetch tweets from UTEG for a user
+- `getReverseChrono` - Fetch reverse chronological tweets
+- `getHydrated` - Hydrate existing tweet IDs with full data
+
+## Monitoring
+
+### Key Metrics
+- **Request Rate**: Requests per second from clients
+- **Latency**: p50, p99, p999 response times
+- **Success Rate**: Non-error response percentage
+- **Cache Hit Rate**: Effectiveness of caching layers
+- **Upstream Latency**: Time spent in Earlybird, UTEG, TweetyPie
+
+### Alerts
+- High latency (p99 > 500ms)
+- Low success rate (< 99.5%)
+- High error rate from upstream services
+- Cache performance degradation
+
+## Related Services
+
+- [Home Mixer](/services/home-mixer) - Primary consumer; performs heavy ranking
+- [Tweetypie](/services/tweetypie) - Tweet hydration and data retrieval
+- [CR Mixer](/services/cr-mixer) - Modern candidate generation service

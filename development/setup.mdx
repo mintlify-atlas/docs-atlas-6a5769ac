@@ -1,0 +1,199 @@
+---
+title: Development Setup
+description: Set up your development environment for the X Recommendation Algorithm
+---
+
+## Overview
+
+This guide will help you set up your development environment to work with X's Recommendation Algorithm. The codebase is a complex, production-scale system written primarily in Scala, with components in Java, Python, and Rust.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+<Steps>
+  <Step title="Install Java Development Kit (JDK)">
+    Install JDK 11 or later. The project uses Java 11 as the runtime platform.
+    
+    ```bash
+    # On Ubuntu/Debian
+    sudo apt-get update
+    sudo apt-get install openjdk-11-jdk
+    
+    # On macOS with Homebrew
+    brew install openjdk@11
+    ```
+  </Step>
+
+  <Step title="Install Bazel">
+    The project uses Bazel as its build system. Install Bazel following the [official installation guide](https://bazel.build/install).
+    
+    ```bash
+    # On Ubuntu/Debian
+    sudo apt install apt-transport-https curl gnupg
+    curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor > bazel.gpg
+    sudo mv bazel.gpg /etc/apt/trusted.gpg.d/
+    echo "deb [arch=amd64] https://storage.googleapis.com/bazel-apt stable jdk1.8" | sudo tee /etc/apt/sources.list.d/bazel.list
+    sudo apt update && sudo apt install bazel
+    
+    # On macOS with Homebrew
+    brew install bazel
+    ```
+    
+    Verify your installation:
+    ```bash
+    bazel --version
+    ```
+  </Step>
+
+  <Step title="Install Scala (Optional)">
+    While Bazel manages Scala dependencies, you may want to install Scala for IDE support.
+    
+    ```bash
+    # On Ubuntu/Debian
+    sudo apt-get install scala
+    
+    # On macOS with Homebrew
+    brew install scala
+    ```
+  </Step>
+
+  <Step title="Install Python">
+    Some components require Python 3.7 or later for machine learning models and scripts.
+    
+    ```bash
+    # On Ubuntu/Debian
+    sudo apt-get install python3 python3-pip
+    
+    # On macOS with Homebrew
+    brew install python@3.9
+    ```
+  </Step>
+
+  <Step title="Install Rust (for Navi)">
+    The Navi model serving component is written in Rust.
+    
+    ```bash
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    source $HOME/.cargo/env
+    ```
+  </Step>
+</Steps>
+
+## Clone the Repository
+
+Clone the X Recommendation Algorithm repository:
+
+```bash
+git clone https://github.com/twitter/the-algorithm.git
+cd the-algorithm
+```
+
+## Repository Structure
+
+Understanding the repository structure will help you navigate the codebase:
+
+### Core Data Services
+
+- **tweetypie/** - Core service for reading and writing post data
+- **unified_user_actions/** - Real-time stream of user actions
+- **user-signal-service/** - Centralized platform for user signals (likes, replies, clicks)
+
+### Models and Algorithms
+
+- **src/scala/com/twitter/simclusters_v2/** - SimClusters community detection
+- **trust_and_safety_models/** - NSFW and abusive content detection
+- **src/scala/com/twitter/interaction_graph/** - Real-Graph user interaction predictions
+- **src/scala/com/twitter/graph/batch/job/tweepcred/** - TweepCred reputation algorithm
+
+### Software Frameworks
+
+- **navi/** - High-performance ML model serving (Rust)
+- **product-mixer/** - Framework for building content feeds
+- **timelines/data_processing/ml_util/aggregation_framework/** - Feature aggregation
+- **representation-manager/** - Embedding retrieval service
+- **twml/** - Legacy ML framework (TensorFlow v1)
+
+### Product Surfaces
+
+- **home-mixer/** - Main service for Home Timeline (For You, Following, Lists)
+- **pushservice/** - Recommendation service for notifications
+- **tweet-mixer/** - Coordination layer for out-of-network tweet candidates
+- **follow-recommendations-service/** - Account and post recommendations
+
+### Candidate Sources and Ranking
+
+- **src/java/com/twitter/search/** - Search index for in-network posts
+- **src/scala/com/twitter/recos/** - GraphJet-based recommendation services
+- **timelineranker/** - Legacy ranking service
+- **visibilitylib/** - Content filtering and compliance
+
+### Source Code Organization
+
+- **src/java/** - Java implementations
+- **src/scala/** - Scala implementations
+- **src/python/** - Python ML models and scripts
+- **src/thrift/** - Thrift service definitions
+
+## IDE Setup
+
+### IntelliJ IDEA (Recommended for Scala/Java)
+
+<Steps>
+  <Step title="Install IntelliJ IDEA">
+    Download and install [IntelliJ IDEA](https://www.jetbrains.com/idea/) (Community or Ultimate edition).
+  </Step>
+
+  <Step title="Install Plugins">
+    Install the following plugins:
+    - Scala
+    - Bazel (by Google)
+  </Step>
+
+  <Step title="Import Project">
+    1. Open IntelliJ IDEA
+    2. Select "Open" and choose the repository root directory
+    3. When prompted, import as a Bazel project
+    4. Configure the project SDK to use Java 11
+  </Step>
+</Steps>
+
+### Visual Studio Code
+
+<Steps>
+  <Step title="Install VS Code">
+    Download and install [Visual Studio Code](https://code.visualstudio.com/).
+  </Step>
+
+  <Step title="Install Extensions">
+    Install the following extensions:
+    - Scala (Metals)
+    - Bazel
+    - Python
+    - rust-analyzer (for Navi)
+  </Step>
+
+  <Step title="Open Project">
+    Open the repository root directory in VS Code. Metals will automatically detect the Scala code and provide IDE features.
+  </Step>
+</Steps>
+
+## Verify Your Setup
+
+Test your development environment by checking if you can query the build targets:
+
+```bash
+# List all build targets
+bazel query //...
+
+# Check a specific component
+bazel query //home-mixer/...
+```
+
+If these commands run without errors, your development environment is ready!
+
+## Next Steps
+
+- Learn about [building and testing](/development/building) the codebase
+- Review the [contributing guidelines](/development/contributing)
+- Explore the [engineering blog](https://blog.x.com/engineering/en_us/topics/open-source/2023/twitter-recommendation-algorithm) for algorithm details

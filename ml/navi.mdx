@@ -1,0 +1,229 @@
+---
+title: "Navi ML Serving"
+description: "High-performance machine learning model serving infrastructure built in Rust with support for TensorFlow, ONNX, and PyTorch runtimes"
+---
+
+# Navi: High-Performance ML Serving
+
+Navi is a high-performance, versatile machine learning serving server implemented in Rust and tailored for production usage at scale. It's designed to efficiently serve models within X's tech stack, offering top-notch performance while focusing on core features.
+
+## Overview
+
+Navi serves as X's primary ML model serving infrastructure, handling real-time inference requests across the recommendation pipeline. Built with a minimalist design philosophy, it prioritizes ultra-high performance, stability, and availability for production workloads.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Production-Optimized" icon="gauge-high">
+    Minimalist design delivering ultra-high performance, stability, and availability for real-world application demands
+  </Card>
+  <Card title="TensorFlow Compatible" icon="plug">
+    gRPC API compatibility with TensorFlow Serving for seamless integration with existing clients
+  </Card>
+  <Card title="Multi-Runtime Support" icon="layer-group">
+    Pluggable architecture supporting TensorFlow, ONNX Runtime, and experimental PyTorch support
+  </Card>
+  <Card title="Rust Performance" icon="bolt">
+    Built in Rust for maximum performance and memory safety in production environments
+  </Card>
+</CardGroup>
+
+## Architecture
+
+Navi's plugin architecture enables support for different ML runtimes while maintaining a consistent serving interface:
+
+```
+Client Request (gRPC)
+         |
+         v
+   Navi Server
+         |
+    +---------+---------+
+    |         |         |
+    v         v         v
+TensorFlow  ONNX    PyTorch
+Runtime   Runtime   Runtime
+```
+
+## Supported Runtimes
+
+### TensorFlow
+
+<Note>
+  **Most Feature-Complete**: Navi for TensorFlow is production-ready with full support for multiple input tensors of different types.
+</Note>
+
+**Supported Input Types:**
+- Float tensors
+- Integer tensors  
+- String tensors
+- Multiple input tensors per request
+
+**Use Cases:**
+- Heavy ranker models
+- Multi-task learning models
+- Feature-rich ranking models
+
+### ONNX Runtime
+
+**Current Capabilities:**
+- Primary support: Single input tensor of type string
+- Used in X's home recommendation pipeline
+- Proprietary BatchPredictRequest format
+
+**Use Cases:**
+- Home timeline ranking
+- Optimized inference for ONNX-exported models
+
+### PyTorch
+
+<Warning>
+  PyTorch support is experimental and not yet production-ready in terms of performance and stability.
+</Warning>
+
+## Directory Structure
+
+The Navi codebase is organized into several key components:
+
+<AccordionGroup>
+  <Accordion title="navi/" icon="folder">
+    Main code repository containing the core Navi server implementation in Rust
+  </Accordion>
+  
+  <Accordion title="dr_transform/" icon="arrows-rotate">
+    X-specific converter that transforms BatchPredictionRequest Thrift to ndarray format for model inference
+  </Accordion>
+  
+  <Accordion title="segdense/" icon="gear">
+    X-specific configuration specifying how to retrieve feature values from BatchPredictionRequest
+  </Accordion>
+  
+  <Accordion title="thrift_bpr_adapter/" icon="code">
+    Generated Thrift code for BatchPredictionRequest protocol
+  </Accordion>
+</AccordionGroup>
+
+## Running Navi
+
+<Steps>
+  <Step title="Create Model Directory Structure">
+    Set up the models directory with versioned subdirectories using epoch timestamps:
+    
+    ```bash
+    mkdir -p models/web_click/1679693908377
+    mkdir -p models/web_click/1679693908400
+    ```
+    
+    The structure should look like:
+    ```
+    models/
+      └── web_click/
+          ├── 1679693908377/
+          └── 1679693908400/
+    ```
+  </Step>
+  
+  <Step title="Run TensorFlow Serving">
+    Execute the TensorFlow runtime script:
+    
+    ```bash
+    cd navi/navi
+    ./scripts/run_tf2.sh
+    ```
+  </Step>
+  
+  <Step title="Run ONNX Serving">
+    Execute the ONNX runtime script:
+    
+    ```bash
+    cd navi/navi
+    ./scripts/run_onnx.sh
+    ```
+  </Step>
+</Steps>
+
+## Building from Source
+
+<CodeGroup>
+```bash TensorFlow Build
+cd navi/navi
+cargo build --release --features tensorflow
+```
+
+```bash ONNX Build
+cd navi/navi
+cargo build --release --features onnx
+```
+
+```bash PyTorch Build (Experimental)
+cd navi/navi
+cargo build --release --features pytorch
+```
+</CodeGroup>
+
+## Integration with X's Recommendation Pipeline
+
+Navi plays a critical role in X's recommendation infrastructure:
+
+1. **Home Timeline**: Serves ONNX models for rapid candidate scoring
+2. **Heavy Ranking**: Provides TensorFlow model inference for detailed ranking
+3. **Push Notifications**: Powers real-time scoring for notification candidates
+
+## BatchPredictionRequest Format
+
+For ONNX runtime, Navi uses a proprietary BatchPredictionRequest format:
+
+```rust
+// Example structure (simplified)
+struct BatchPredictionRequest {
+    // Dense features stored in segmented format
+    dense_features: Vec<f32>,
+    // Sparse features with indices
+    sparse_features: HashMap<i64, f32>,
+    // Feature configuration
+    feature_config: FeatureConfig,
+}
+```
+
+The `dr_transform` component converts this Thrift-based format into ndarray tensors suitable for model inference.
+
+## Performance Characteristics
+
+<CardGroup cols={2}>
+  <Card title="Low Latency" icon="clock">
+    Optimized for sub-millisecond inference latency at p99
+  </Card>
+  <Card title="High Throughput" icon="chart-line">
+    Handles thousands of requests per second per instance
+  </Card>
+  <Card title="Memory Efficient" icon="memory">
+    Rust's zero-cost abstractions minimize memory overhead
+  </Card>
+  <Card title="Production Stable" icon="shield-check">
+    Battle-tested in X's production environment
+  </Card>
+</CardGroup>
+
+## API Compatibility
+
+Navi implements the TensorFlow Serving gRPC API, making it compatible with existing TensorFlow Serving clients:
+
+```protobuf
+service PredictionService {
+  rpc Predict(PredictRequest) returns (PredictResponse);
+  rpc GetModelMetadata(GetModelMetadataRequest) returns (GetModelMetadataResponse);
+}
+```
+
+This allows for drop-in replacement of TensorFlow Serving with Navi for improved performance.
+
+## Learn More
+
+<CardGroup cols={2}>
+  <Card title="Ranking Systems" href="/ml/ranking" icon="ranking-star">
+    Learn how Navi integrates with light and heavy rankers
+  </Card>
+  <Card title="Product Mixer" href="/ml/product-mixer" icon="blender">
+    Explore the service framework that orchestrates ML serving
+  </Card>
+</CardGroup>

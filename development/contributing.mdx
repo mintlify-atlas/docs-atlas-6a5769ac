@@ -1,0 +1,375 @@
+---
+title: Contributing Guidelines
+description: Learn how to contribute to the X Recommendation Algorithm project
+---
+
+## Overview
+
+X welcomes contributions from the community to improve the recommendation algorithm. This guide outlines how to contribute effectively, from submitting issues to creating pull requests.
+
+<Note>
+X is working on tools to manage community suggestions and sync changes to their internal repository. Contributions help improve the algorithm through collective intelligence and expertise.
+</Note>
+
+## Ways to Contribute
+
+There are several ways you can contribute to the X Recommendation Algorithm:
+
+1. **Report bugs** - Help identify issues in the code
+2. **Suggest improvements** - Propose enhancements to the algorithm
+3. **Submit code changes** - Fix bugs or implement new features
+4. **Improve documentation** - Help others understand the system
+5. **Report security vulnerabilities** - Keep the platform secure
+
+## Before You Start
+
+<Steps>
+  <Step title="Read the Documentation">
+    Familiarize yourself with:
+    - The [engineering blog](https://blog.x.com/engineering/en_us/topics/open-source/2023/twitter-recommendation-algorithm) explaining how the algorithm works
+    - The [open source initiative blog](https://blog.x.com/en_us/topics/company/2023/a-new-era-of-transparency-for-twitter)
+    - The repository README and component-specific documentation
+  </Step>
+
+  <Step title="Set Up Your Development Environment">
+    Follow the [development setup guide](/development/setup) to configure your environment and understand the codebase structure.
+  </Step>
+
+  <Step title="Understand the Build System">
+    Review the [building and testing guide](/development/building) to learn how to build and test your changes using Bazel.
+  </Step>
+</Steps>
+
+## Reporting Issues
+
+The community is invited to submit GitHub issues for suggestions on improving the recommendation algorithm.
+
+### Creating an Issue
+
+<Steps>
+  <Step title="Search Existing Issues">
+    Before creating a new issue, search the [existing issues](https://github.com/twitter/the-algorithm/issues) to avoid duplicates.
+  </Step>
+
+  <Step title="Choose the Right Issue Type">
+    Select the appropriate issue type:
+    - **Bug Report** - Something isn't working as expected
+    - **Feature Request** - Suggest a new feature or improvement
+    - **Question** - Ask for clarification about the algorithm
+    - **Documentation** - Improvements to docs or examples
+  </Step>
+
+  <Step title="Provide Detailed Information">
+    Include:
+    - **Clear title** - Summarize the issue in one line
+    - **Description** - Explain the issue or suggestion in detail
+    - **Steps to reproduce** - For bugs, provide reproduction steps
+    - **Expected behavior** - What should happen
+    - **Actual behavior** - What actually happens
+    - **Environment** - OS, Bazel version, Java version, etc.
+    - **Code snippets** - Relevant code or build targets
+  </Step>
+</Steps>
+
+### Issue Example
+
+```markdown
+**Title:** Home Mixer fails to build with Bazel 6.0
+
+**Description:**
+When attempting to build the home-mixer component using Bazel 6.0,
+the build fails with a dependency resolution error.
+
+**Steps to Reproduce:**
+1. Install Bazel 6.0
+2. Run `bazel build //home-mixer:bin`
+3. Observe the error
+
+**Expected Behavior:**
+Build should complete successfully
+
+**Actual Behavior:**
+Build fails with error: [error message]
+
+**Environment:**
+- OS: Ubuntu 22.04
+- Bazel: 6.0.0
+- Java: OpenJDK 11.0.16
+```
+
+## Submitting Pull Requests
+
+The community is invited to submit pull requests with code improvements.
+
+### Pull Request Process
+
+<Steps>
+  <Step title="Fork the Repository">
+    Create a fork of the repository to your GitHub account:
+    ```bash
+    # Fork on GitHub UI, then clone your fork
+    git clone https://github.com/YOUR_USERNAME/the-algorithm.git
+    cd the-algorithm
+    ```
+  </Step>
+
+  <Step title="Create a Feature Branch">
+    Create a branch for your changes:
+    ```bash
+    git checkout -b feature/your-feature-name
+    # or
+    git checkout -b fix/your-bug-fix
+    ```
+  </Step>
+
+  <Step title="Make Your Changes">
+    - Write clean, well-documented code
+    - Follow existing code style and conventions
+    - Add tests for new functionality
+    - Ensure all tests pass
+  </Step>
+
+  <Step title="Test Your Changes">
+    Build and test the affected components:
+    ```bash
+    # Build your changes
+    bazel build //path/to/your/component:target
+    
+    # Run tests
+    bazel test //path/to/your/component/...
+    ```
+  </Step>
+
+  <Step title="Commit Your Changes">
+    Write clear, descriptive commit messages:
+    ```bash
+    git add .
+    git commit -m "Fix: Description of what you fixed"
+    # or
+    git commit -m "Feature: Description of what you added"
+    ```
+  </Step>
+
+  <Step title="Push to Your Fork">
+    ```bash
+    git push origin feature/your-feature-name
+    ```
+  </Step>
+
+  <Step title="Create a Pull Request">
+    1. Go to the original repository on GitHub
+    2. Click "New Pull Request"
+    3. Select your fork and branch
+    4. Fill out the PR template with:
+       - Clear description of changes
+       - Related issue numbers
+       - Testing performed
+       - Any breaking changes
+  </Step>
+</Steps>
+
+### Pull Request Guidelines
+
+<CardGroup cols={2}>
+  <Card title="Code Quality" icon="code">
+    - Follow Scala/Java/Python style guides
+    - Write clear, self-documenting code
+    - Add comments for complex logic
+    - Keep functions focused and small
+  </Card>
+
+  <Card title="Testing" icon="flask">
+    - Add unit tests for new code
+    - Ensure all existing tests pass
+    - Test edge cases and error conditions
+    - Include integration tests where applicable
+  </Card>
+
+  <Card title="Documentation" icon="book">
+    - Update relevant README files
+    - Add code comments and docstrings
+    - Document configuration changes
+    - Update API documentation if needed
+  </Card>
+
+  <Card title="Commits" icon="git-alt">
+    - Write descriptive commit messages
+    - Keep commits focused and atomic
+    - Reference related issues
+    - Squash commits if requested
+  </Card>
+</CardGroup>
+
+## Code Style Guidelines
+
+### Scala
+
+```scala
+// Use descriptive names
+val userInteractionScore: Double = calculateScore(user, tweet)
+
+// Prefer immutability
+val scores = candidates.map(c => scoreCandidate(c))
+
+// Use pattern matching
+result match {
+  case Success(value) => processValue(value)
+  case Failure(error) => handleError(error)
+}
+
+// Add type annotations for public methods
+def rankCandidates(candidates: Seq[Candidate]): Seq[RankedCandidate] = {
+  // implementation
+}
+```
+
+### Java
+
+```java
+// Use descriptive names and proper formatting
+public class TweetCandidate {
+    private final long tweetId;
+    private final double score;
+    
+    public TweetCandidate(long tweetId, double score) {
+        this.tweetId = tweetId;
+        this.score = score;
+    }
+    
+    // Getters, equals, hashCode, toString
+}
+```
+
+### Python
+
+```python
+# Follow PEP 8
+import numpy as np
+from typing import List, Dict
+
+def calculate_engagement_score(
+    features: Dict[str, float],
+    weights: np.ndarray
+) -> float:
+    """
+    Calculate engagement score from features and weights.
+    
+    Args:
+        features: Feature dictionary
+        weights: Model weights
+        
+    Returns:
+        Engagement probability score
+    """
+    # implementation
+    pass
+```
+
+## Security Vulnerabilities
+
+<Warning>
+Do NOT report security vulnerabilities through GitHub issues.
+</Warning>
+
+Any security concerns or issues should be routed to X's official bug bounty program through HackerOne.
+
+<Steps>
+  <Step title="Assess the Vulnerability">
+    Determine if the issue is a genuine security vulnerability that could impact user privacy, data integrity, or platform security.
+  </Step>
+
+  <Step title="Submit to HackerOne">
+    Report the vulnerability through X's official bug bounty program:
+    
+    [https://hackerone.com/x](https://hackerone.com/x)
+  </Step>
+
+  <Step title="Do Not Disclose Publicly">
+    Do not publicly disclose the vulnerability until X has had time to address it and coordinate a disclosure timeline.
+  </Step>
+</Steps>
+
+### What Qualifies as a Security Issue?
+
+- Privacy violations or data exposure
+- Authentication or authorization bypasses
+- Injection vulnerabilities (SQL, code, etc.)
+- Algorithmic manipulation that could enable abuse
+- Credential leaks or secrets in code
+- Denial of service vulnerabilities
+
+## Review Process
+
+After submitting a pull request:
+
+1. **Automated checks** - CI/CD pipelines will run tests and linters
+2. **Code review** - X engineers will review your code
+3. **Feedback** - You may be asked to make changes
+4. **Approval** - Once approved, your PR will be merged
+5. **Internal sync** - X will sync changes to their internal repository
+
+<Note>
+X is developing tools to manage community contributions and sync them with their internal codebase. The review process may evolve as these tools are implemented.
+</Note>
+
+## Communication
+
+### GitHub Discussions
+
+Use GitHub Discussions for:
+- General questions about the algorithm
+- Design discussions for major features
+- Community collaboration and ideation
+
+### Issue Comments
+
+Use issue comments for:
+- Discussing specific bugs or features
+- Providing additional context
+- Coordinating with other contributors
+
+### Pull Request Comments
+
+Use PR comments for:
+- Responding to code review feedback
+- Explaining implementation decisions
+- Discussing technical trade-offs
+
+## Recognition
+
+Contributors who help improve the algorithm will be recognized through:
+- GitHub contribution history
+- Acknowledgment in release notes (for significant contributions)
+- Community appreciation
+
+X hopes to benefit from the collective intelligence and expertise of the global community in helping identify issues and suggest improvements, ultimately leading to a better X.
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Engineering Blog" icon="newspaper" href="https://blog.x.com/engineering/en_us/topics/open-source/2023/twitter-recommendation-algorithm">
+    Technical deep-dive into how the algorithm works
+  </Card>
+
+  <Card title="Open Source Initiative" icon="globe" href="https://blog.x.com/en_us/topics/company/2023/a-new-era-of-transparency-for-twitter">
+    Learn about X's commitment to transparency
+  </Card>
+
+  <Card title="Bug Bounty Program" icon="shield-halved" href="https://hackerone.com/x">
+    Report security vulnerabilities responsibly
+  </Card>
+
+  <Card title="GitHub Repository" icon="github" href="https://github.com/twitter/the-algorithm">
+    Browse the source code and issues
+  </Card>
+</CardGroup>
+
+## Questions?
+
+If you have questions about contributing:
+1. Check existing issues and discussions
+2. Review the repository documentation
+3. Ask in GitHub Discussions
+4. Create an issue if your question reveals a documentation gap
+
+Thank you for helping improve the X Recommendation Algorithm!

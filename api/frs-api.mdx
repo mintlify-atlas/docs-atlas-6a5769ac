@@ -1,0 +1,337 @@
+---
+title: Follow Recommendations Service API
+description: API reference for Twitter's Follow Recommendations Service (FRS), providing personalized account suggestions
+---
+
+## Overview
+
+The Follow Recommendations Service (FRS) is a robust recommendation engine designed to provide users with personalized suggestions for accounts to follow. FRS supports Who-To-Follow (WTF) module recommendations across various Twitter product interfaces and delivers FutureGraph tweet recommendations (tweets from accounts users may want to follow).
+
+The service implements a multi-stage pipeline:
+
+1. **Candidate Generation** - Use various signals and algorithms to identify candidate accounts
+2. **Filtering** - Apply quality and health filters
+3. **Ranking** - Score candidates using ML models and heuristics
+4. **Transform** - Add social proof, tracking tokens, and other metadata
+5. **Truncation** - Trim to optimal result size
+
+## Service Definition
+
+FRS is defined in `follow-recommendations-service/thrift/src/main/thrift/follow-recommendations-service.thrift`
+
+```thrift
+service FollowRecommendationsThriftService {
+  RecommendationResponse getRecommendations(1: RecommendationRequest request)
+  RecommendationDisplayResponse getRecommendationDisplayResponse(1: RecommendationRequest request)
+  ScoringUserResponse scoreUserCandidates(1: ScoringUserRequest request)
+  RecommendationResponse debugCandidateSource(1: DebugCandidateSourceRequest request)
+  PipelineExecutionResult executePipeline(1: RecommendationRequest request)
+}
+```
+
+## getRecommendations
+
+Returns personalized account recommendations for a user.
+
+### Request
+
+<ParamField path="clientContext" type="ClientContext" required>
+  Client context containing caller/client level information
+  
+  <ParamField path="userId" type="int64">
+    User ID requesting recommendations
+  </ParamField>
+  
+  <ParamField path="guestId" type="int64">
+    Guest ID for logged-out users
+  </ParamField>
+  
+  <ParamField path="appId" type="int64">
+    Application identifier
+  </ParamField>
+  
+  <ParamField path="ipAddress" type="string">
+    Client IP address
+  </ParamField>
+  
+  <ParamField path="userAgent" type="string">
+    Client user agent string
+  </ParamField>
+  
+  <ParamField path="countryCode" type="string">
+    Inferred country code
+  </ParamField>
+  
+  <ParamField path="languageCode" type="string">
+    Inferred language code
+  </ParamField>
+  
+  <ParamField path="deviceId" type="string">
+    Device identifier
+  </ParamField>
+</ParamField>
+
+<ParamField path="displayLocation" type="DisplayLocation" required>
+  Location where recommendations will be displayed. Key values:
+  - `HOME_TIMELINE` (39) - Home timeline WTF module
+  - `PROFILE_SIDEBAR` (2) - Profile page sidebar
+  - `EXPLORE_TAB` (57) - Explore tab recommendations
+  - `NUX_PYMK` (67) - New user experience "People You May Know"
+  - `NUX_INTERESTS` (68) - New user interest-based recommendations
+  - `POST_NUX_FOLLOW_TASK` (75) - Post-NUX follow task
+  - `HOME_TIMELINE_TWEET_RECS` (83) - Tweet author recommendations in Home
+  - `MagicRecs` (59) - Account recommendations in notifications
+  
+  See complete list in `display_location.thrift`
+</ParamField>
+
+<ParamField path="displayContext" type="DisplayContext">
+  Additional context about the display surface
+</ParamField>
+
+<ParamField path="maxResults" type="int32">
+  Maximum number of recommendations to return
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Cursor for pagination to continue returning results
+</ParamField>
+
+<ParamField path="excludedIds" type="list<int64>">
+  User IDs to exclude from recommendations (already following, dismissed, etc.)
+</ParamField>
+
+<ParamField path="fetchPromotedContent" type="bool">
+  Whether to include promoted (advertised) accounts in results
+</ParamField>
+
+<ParamField path="debugParams" type="DebugParams">
+  Debug parameters for testing and development
+</ParamField>
+
+<ParamField path="userLocationState" type="string">
+  User's inferred location state
+</ParamField>
+
+### Response
+
+<ResponseField name="recommendations" type="list<Recommendation>" required>
+  List of account recommendations
+  
+  <ResponseField name="user" type="UserRecommendation">
+    User account recommendation
+    
+    <ResponseField name="userId" type="int64" required>
+      Recommended user's ID
+    </ResponseField>
+    
+    <ResponseField name="reason" type="Reason">
+      Reason for the suggestion (e.g., social context like "Followed by X")
+    </ResponseField>
+    
+    <ResponseField name="adImpression" type="AdImpression">
+      Present if this is a promoted account; used for ad impression tracking
+    </ResponseField>
+    
+    <ResponseField name="trackingInfo" type="string">
+      Tracking token for attribution and analytics
+    </ResponseField>
+    
+    <ResponseField name="scoringDetails" type="ScoringDetails">
+      Details about how the candidate was scored
+    </ResponseField>
+    
+    <ResponseField name="recommendationFlowIdentifier" type="string">
+      Identifier for which recommendation flow generated this candidate
+    </ResponseField>
+    
+    <ResponseField name="featureOverrides" type="map<string, FeatureValue>">
+      Feature switch overrides for this candidate
+    </ResponseField>
+  </ResponseField>
+</ResponseField>
+
+### Exceptions
+
+<ResponseField name="serverError" type="ServerError">
+  Server-side error occurred
+</ResponseField>
+
+<ResponseField name="unknownClientIdError" type="UnknownClientIdError">
+  Client ID is not recognized
+</ResponseField>
+
+<ResponseField name="noClientIdError" type="NoClientIdError">
+  No client ID was provided
+</ResponseField>
+
+## getRecommendationDisplayResponse
+
+Returns recommendations with additional display metadata (headers, footers, presentation settings).
+
+### Request
+
+Same as `getRecommendations`
+
+### Response
+
+<ResponseField name="hydratedRecommendation" type="list<HydratedRecommendation>" required>
+  Recommendations with hydrated display information
+  
+  <ResponseField name="userId" type="int64" required>
+    Recommended user ID
+  </ResponseField>
+  
+  <ResponseField name="socialProof" type="string">
+    Social proof text (e.g., "Followed by Alice and Bob")
+  </ResponseField>
+  
+  <ResponseField name="adImpression" type="AdImpression">
+    Ad impression data if promoted account
+  </ResponseField>
+  
+  <ResponseField name="trackingInfo" type="string">
+    Tracking token
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="header" type="Header">
+  Header component for the WTF module
+</ResponseField>
+
+<ResponseField name="footer" type="Footer">
+  Footer component for the WTF module
+</ResponseField>
+
+<ResponseField name="wtfPresentation" type="WTFPresentation">
+  Presentation settings for Who To Follow module
+</ResponseField>
+
+## scoreUserCandidates
+
+Scores a provided list of user candidates. Used for feature hydration and logging during data collection.
+
+### Request
+
+<ParamField path="clientContext" type="ClientContext" required>
+  Client context
+</ParamField>
+
+<ParamField path="displayLocation" type="DisplayLocation" required>
+  Display location
+</ParamField>
+
+<ParamField path="candidates" type="list<UserRecommendation>" required>
+  List of user candidates to score
+</ParamField>
+
+<ParamField path="debugParams" type="DebugParams">
+  Debug parameters
+</ParamField>
+
+### Response
+
+<ResponseField name="candidates" type="list<UserRecommendation>" required>
+  Scored candidates (currently returns empty list - used primarily for logging)
+</ResponseField>
+
+## debugCandidateSource
+
+Debug endpoint for getting recommendations from a single candidate source. Useful for testing and debugging individual candidate generation algorithms.
+
+### Request
+
+<ParamField path="clientContext" type="ClientContext" required>
+  Client context
+</ParamField>
+
+<ParamField path="candidateSource" type="DebugCandidateSourceIdentifier" required>
+  Identifier for the specific candidate source to test
+</ParamField>
+
+<ParamField path="uttInterestIds" type="list<int64>">
+  User-Topic-Tweet (UTT) interest IDs
+</ParamField>
+
+<ParamField path="debugParams" type="DebugParams">
+  Additional debug parameters
+</ParamField>
+
+<ParamField path="recentlyFollowedUserIds" type="list<int64>">
+  Recently followed user IDs for context
+</ParamField>
+
+<ParamField path="recentlyEngagedUserIds" type="list<RecentlyEngagedUserId>">
+  Recently engaged user IDs with engagement metadata
+</ParamField>
+
+<ParamField path="byfSeedUserIds" type="list<int64>">
+  Based-on-your-follows seed user IDs
+</ParamField>
+
+<ParamField path="similarToUserIds" type="list<int64>">
+  "Similar to" seed user IDs
+</ParamField>
+
+<ParamField path="applySgsPredicate" type="bool" required>
+  Whether to apply Social Graph Service predicate filtering
+</ParamField>
+
+<ParamField path="maxResults" type="int32">
+  Maximum results to return
+</ParamField>
+
+### Response
+
+<ResponseField name="recommendations" type="list<Recommendation>" required>
+  Recommendations from the specified candidate source
+</ResponseField>
+
+## executePipeline
+
+Executes a recommendation pipeline and returns the full execution log. Used by debugging tools to understand pipeline behavior.
+
+### Request
+
+Same as `getRecommendations`
+
+### Response
+
+<ResponseField name="pipelineExecutionResult" type="PipelineExecutionResult">
+  Complete execution trace including:
+  - Candidate sources called
+  - Filters applied
+  - Ranking scores
+  - Transform operations
+  - Timing information
+  - Feature values
+</ResponseField>
+
+## Machine Learning Pipeline
+
+FRS uses ML models for ranking candidates:
+
+1. **Feature Hydration** - Fetch user and candidate features
+2. **DataRecord Construction** - Build DataRecord for each (user, candidate) pair
+3. **ML Prediction** - Send to ML prediction service
+4. **Scoring** - Weighted sum of p(follow|recommendation) and p(engagement|follow)
+
+See [Data Record Formats](/api/data-records) for details on the ML data format.
+
+## Candidate Sources
+
+FRS supports multiple candidate generation algorithms:
+
+- Social graph-based (follow-of-follows, mutual follows)
+- Interest-based (topic affinity, entity graphs)
+- Geo-based (popular in region)
+- Engagement-based (profile visits, search clicks)
+- Model-based (SimClusters, embeddings)
+
+Each display location can configure which candidate sources to use.
+
+## Related APIs
+
+- [CR Mixer API](/api/cr-mixer-api) - Tweet recommendations
+- [Data Record Formats](/api/data-records) - ML data format
+- [Thrift Definitions](/api/thrift-definitions) - Complete type definitions

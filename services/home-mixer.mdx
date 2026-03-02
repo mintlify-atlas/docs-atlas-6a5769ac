@@ -1,0 +1,178 @@
+---
+title: "Home Mixer"
+description: "The main service for constructing and serving Twitter's Home Timelines"
+---
+
+## Overview
+
+Home Mixer is the main service used to construct and serve Twitter's Home Timelines. Built on Product Mixer, Twitter's custom Scala framework for building content feeds, it currently powers:
+
+- **For You** - Best tweets from people you follow + recommended out-of-network content
+- **Following** - Reverse chronological tweets from people you follow
+- **Lists** - Reverse chronological tweets from List members
+
+## Architecture
+
+Home Mixer is built on **Product Mixer**, a custom Scala framework that facilitates building feeds of content through structured pipelines.
+
+### Pipeline Structure
+
+Product Mixer services are structured around Pipelines that split execution into transparent and structured steps:
+
+<Steps>
+  <Step title="Product Pipelines">
+    Requests first go to Product Pipelines, which select which Mixer Pipeline or Recommendation Pipeline to run for a given request.
+  </Step>
+  
+  <Step title="Mixer/Recommendation Pipelines">
+    Each pipeline may run multiple Candidate Pipelines to fetch candidates:
+    - **Mixer Pipelines** combine results of multiple heterogeneous Candidate Pipelines (e.g., ads, tweets, users)
+    - **Recommendation Pipelines** score and rank results of homogeneous Candidate Pipelines
+  </Step>
+  
+  <Step title="Candidate Pipelines">
+    Fetch candidates from underlying Candidate Sources and perform basic operations like filtering, decoration, and feature hydration.
+  </Step>
+</Steps>
+
+## For You Timeline
+
+The For You recommendation algorithm involves several key stages:
+
+### 1. Candidate Generation
+
+Fetch tweets from various candidate sources:
+
+- **Earlybird Search Index** - Real-time tweet search index
+- **User Tweet Entity Graph (UTEG)** - Graph-based tweet recommendations
+- **CR Mixer** - Candidate generation and mixing service
+- **Follow Recommendations Service** - Account recommendations for tweet discovery
+
+### 2. Feature Hydration
+
+Fetch approximately **6,000 features** needed for ranking. These features include:
+
+- User engagement history
+- Tweet metadata and content features
+- Author features
+- Real-time signals
+
+### 3. Scoring and Ranking
+
+Apply machine learning models to score and rank candidates based on predicted user engagement.
+
+### 4. Filters and Heuristics
+
+<CardGroup cols={2}>
+  <Card title="Author Diversity" icon="users">
+    Ensure variety in tweet authors shown to users
+  </Card>
+  <Card title="Content Balance" icon="scale-balanced">
+    Mix in-network vs out-of-network content appropriately
+  </Card>
+  <Card title="Feedback Fatigue" icon="thumbs-down">
+    Reduce content similar to previously dismissed tweets
+  </Card>
+  <Card title="Visibility Filtering" icon="eye-slash">
+    Remove blocked, muted authors/tweets and apply NSFW settings
+  </Card>
+</CardGroup>
+
+### 5. Mixing
+
+Integrate tweets with non-tweet content:
+
+- Ads
+- Who-to-follow modules
+- Prompts and engagement modules
+
+### 6. Product Features and Serving
+
+- Conversation modules for replies
+- Social context ("Liked by...", "Followed by...")
+- Timeline navigation
+- Edited tweets support
+- Feedback options
+- Pagination and cursoring
+- Client instructions and content marshalling
+
+## Pipeline Configurations
+
+### For You Pipeline Hierarchy
+
+```scala
+ForYouProductPipelineConfig
+└── ForYouScoredTweetsMixerPipelineConfig
+    ├── ForYouScoredTweetsCandidatePipelineConfig
+    │   └── ScoredTweetsRecommendationPipelineConfig
+    │       ├── ScoredTweetsInNetworkCandidatePipelineConfig
+    │       ├── ScoredTweetsTweetMixerCandidatePipelineConfig
+    │       ├── ScoredTweetsUtegCandidatePipelineConfig
+    │       ├── ScoredTweetsFrsCandidatePipelineConfig
+    │       └── ScoredTweetsScoringPipelineConfig
+    ├── ForYouConversationServiceCandidatePipelineConfig
+    ├── ForYouAdsCandidatePipelineConfig
+    └── ForYouWhoToFollowCandidatePipelineConfig
+```
+
+<Note>
+The `ForYouConversationServiceCandidatePipelineConfig` serves as a backup reverse chronological pipeline in case Scored Tweets fails.
+</Note>
+
+### Following Pipeline Hierarchy
+
+```scala
+FollowingProductPipelineConfig
+└── FollowingMixerPipelineConfig
+    ├── FollowingEarlybirdCandidatePipelineConfig
+    ├── ConversationServiceCandidatePipelineConfig
+    ├── FollowingAdsCandidatePipelineConfig
+    └── FollowingWhoToFollowCandidatePipelineConfig
+```
+
+### Lists Pipeline Hierarchy
+
+```scala
+ListTweetsProductPipelineConfig
+└── ListTweetsMixerPipelineConfig
+    ├── ListTweetsTimelineServiceCandidatePipelineConfig
+    ├── ConversationServiceCandidatePipelineConfig
+    └── ListTweetsAdsCandidatePipelineConfig
+```
+
+## Key Components
+
+### Product Pipeline Config
+
+The main entry point for the For You timeline:
+
+```scala
+@Singleton
+class ForYouProductPipelineConfig @Inject() (
+  forYouMixerPipelineConfig: ForYouMixerPipelineConfig,
+  forYouParamConfig: ForYouParamConfig)
+    extends ProductPipelineConfig[HomeMixerRequest, ForYouQuery, urt.TimelineResponse] {
+
+  override val identifier: ProductPipelineIdentifier = ProductPipelineIdentifier("ForYou")
+  // Pipeline configuration...
+}
+```
+
+*Source: home-mixer/server/src/main/scala/com/twitter/home_mixer/product/for_you/ForYouProductPipelineConfig.scala:45*
+
+## Performance Considerations
+
+<Warning>
+Home Mixer handles high throughput and must maintain low latency. Key performance optimizations include:
+- Parallel candidate fetching from multiple sources
+- Efficient feature hydration with batching
+- Caching at multiple layers
+- Circuit breakers for downstream service failures
+</Warning>
+
+## Related Services
+
+- [CR Mixer](/services/cr-mixer) - Candidate generation and mixing
+- [Follow Recommendations Service](/services/follow-recommendations) - Account recommendations
+- [Timeline Ranker](/services/timelineranker) - Legacy ranking service
+- [Tweetypie](/services/tweetypie) - Tweet data service

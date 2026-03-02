@@ -1,0 +1,361 @@
+---
+title: Thrift API Definitions
+description: Core Thrift type definitions used across the X Recommendation Algorithm services
+---
+
+## Overview
+
+The X Recommendation Algorithm uses Apache Thrift for service definitions and data serialization. This page documents the key Thrift types used across multiple services.
+
+## Common Types
+
+### ClientContext
+
+Client context containing caller identification and device information. Used across all services.
+
+```thrift
+struct ClientContext {
+  1: optional i64 userId
+  2: optional i64 guestId
+  3: optional i64 appId
+  4: optional string ipAddress
+  5: optional string userAgent
+  6: optional string countryCode
+  7: optional string languageCode
+  9: optional bool isTwoffice
+  10: optional set<string> userRoles
+  11: optional string deviceId
+  12: optional i64 guestIdAds
+  13: optional i64 guestIdMarketing
+}
+```
+
+<ParamField path="userId" type="int64">
+  User ID for authenticated users (personalDataType='UserId')
+</ParamField>
+
+<ParamField path="guestId" type="int64">
+  Guest ID for logged-out users (personalDataType='GuestId')
+</ParamField>
+
+<ParamField path="appId" type="int64">
+  Application identifier (personalDataType='AppId')
+</ParamField>
+
+<ParamField path="ipAddress" type="string">
+  Client IP address (personalDataType='IpAddress')
+</ParamField>
+
+<ParamField path="userAgent" type="string">
+  Client user agent string (personalDataType='UserAgent')
+</ParamField>
+
+<ParamField path="countryCode" type="string">
+  Inferred country code (personalDataType='InferredCountry')
+</ParamField>
+
+<ParamField path="languageCode" type="string">
+  Inferred language code (personalDataType='InferredLanguage')
+</ParamField>
+
+<ParamField path="deviceId" type="string">
+  Device identifier (personalDataType='DeviceId')
+</ParamField>
+
+## CR Mixer Types
+
+### Product
+
+Enum identifying which product surface is making the request.
+
+```thrift
+enum Product {
+  Home = 1
+  Notifications = 2
+  Email = 3
+  MoreTweetsModule = 4  # aka RUX (Related User eXperience)
+  ImmersiveMediaViewer = 5
+  VideoCarousel = 6
+  ExploreTopics = 7
+  Ads = 8
+  HomeRealTime = 9
+  TopicLandingPage = 10
+  HomeTopicsBackfill = 11
+  TopicTweetsStrato = 12
+}
+```
+
+### TweetRecommendation
+
+A single tweet recommendation with score and metadata.
+
+```thrift
+struct TweetRecommendation {
+  1: required i64 tweetId
+  2: required double score
+  3: optional list<MetricTag> metricTags
+  4: optional i64 authorId
+  5: optional CandidateGenerationKey candidateGenerationKey
+  1001: optional i64 latestSourceSignalTimestampInMillis
+}
+```
+
+<ParamField path="tweetId" type="int64" required>
+  Tweet identifier (personalDataType='TweetId')
+</ParamField>
+
+<ParamField path="score" type="double" required>
+  Recommendation score - higher values indicate stronger recommendations
+</ParamField>
+
+<ParamField path="metricTags" type="list<MetricTag>">
+  Tags for metrics tracking and attribution
+</ParamField>
+
+<ParamField path="authorId" type="int64">
+  Tweet author's user ID (personalDataType='UserId')
+</ParamField>
+
+<ParamField path="candidateGenerationKey" type="CandidateGenerationKey">
+  Information about which algorithm generated this candidate
+</ParamField>
+
+<ParamField path="latestSourceSignalTimestampInMillis" type="int64">
+  Latest timestamp of engagement signals used (null if not from engagement signals)
+</ParamField>
+
+### RelatedTweet
+
+A tweet related to a query tweet or author.
+
+```thrift
+struct RelatedTweet {
+  1: required i64 tweetId
+  2: optional double score
+  3: optional i64 authorId
+}
+```
+
+### UtegTweet
+
+Tweet recommendation from User Tweet Entity Graph with social proof.
+
+```thrift
+struct UtegTweet {
+  1: required i64 tweetId
+  2: required double score
+  3: required map<SocialProofType, list<i64>> socialProofByType
+}
+```
+
+<ParamField path="tweetId" type="int64" required>
+  Tweet identifier
+</ParamField>
+
+<ParamField path="score" type="double" required>
+  Sum of weights of seed users who engaged with the tweet. If a user engaged multiple times (e.g., liked and retweeted), their weight is counted for each engagement type.
+</ParamField>
+
+<ParamField path="socialProofByType" type="map<SocialProofType, list<int64>>" required>
+  Map from engagement type to list of user IDs who engaged in that way. Key is engagement type (like, retweet, reply), value is list of user IDs.
+</ParamField>
+
+### TopicTweet
+
+Tweet recommendation for a specific topic.
+
+```thrift
+struct TopicTweet {
+  1: required i64 tweetId
+  2: required double score
+  3: required SimilarityEngineType similarityEngineType
+}
+```
+
+<ParamField path="similarityEngineType" type="SimilarityEngineType" required>
+  Algorithm used to generate this recommendation (SimClustersANN, TwHINANN, UTEG, etc.)
+</ParamField>
+
+## Follow Recommendations Types
+
+### DisplayLocation
+
+Enum specifying where recommendations will be displayed.
+
+```thrift
+enum DisplayLocation {
+  SIDEBAR = 0
+  PROFILE_SIDEBAR = 2
+  HOME_TIMELINE = 39              # Home timeline WTF module
+  EXPLORE_TAB = 57
+  MagicRecs = 59                  # Notification recommendations
+  NUX_PYMK = 67                   # New User: People You May Know
+  NUX_INTERESTS = 68              # New User: Interest-based
+  POST_NUX_FOLLOW_TASK = 75
+  HOME_TIMELINE_TWEET_RECS = 83   # Tweet author recommendations
+  # ... (50+ total display locations)
+}
+```
+
+Key display locations:
+- **HOME_TIMELINE** (39) - WTF module in Home timeline
+- **NUX_PYMK** (67) - New user "People You May Know"
+- **HOME_TIMELINE_TWEET_RECS** (83) - FutureGraph tweet author recommendations
+- **MagicRecs** (59) - Account recommendations in notifications
+
+### UserRecommendation
+
+A recommended user account.
+
+```thrift
+struct UserRecommendation {
+  1: required i64 userId
+  2: optional Reason reason
+  3: optional AdImpression adImpression
+  4: optional string trackingInfo
+  5: optional ScoringDetails scoringDetails
+  6: optional string recommendationFlowIdentifier
+  7: optional map<string, FeatureValue> featureOverrides
+}
+```
+
+<ParamField path="userId" type="int64" required>
+  Recommended user's ID (personalDataType='UserId')
+</ParamField>
+
+<ParamField path="reason" type="Reason">
+  Reason for the recommendation (social context, e.g., "Followed by X")
+</ParamField>
+
+<ParamField path="adImpression" type="AdImpression">
+  Present if this is a promoted account; used for ad impression tracking
+</ParamField>
+
+<ParamField path="trackingInfo" type="string">
+  Opaque tracking token for attribution
+</ParamField>
+
+<ParamField path="scoringDetails" type="ScoringDetails">
+  Information about the candidate's score and ranking
+</ParamField>
+
+<ParamField path="recommendationFlowIdentifier" type="string">
+  Identifier for which recommendation flow generated this candidate
+</ParamField>
+
+## Source Signals
+
+### SourceType
+
+Enum identifying the type of user signal used for candidate generation.
+
+```thrift
+enum SourceType {
+  // Tweet engagement signals
+  TweetFavorite = 0
+  Retweet = 1
+  OriginalTweet = 3
+  Reply = 4
+  TweetShare = 5
+  GoodTweetClick = 6              # Dwell time > N seconds
+  VideoTweetQualityView = 7
+  VideoTweetPlayback50 = 8
+  
+  // User relationship signals
+  UserFollow = 101
+  UserRepeatedProfileVisit = 102
+  RealGraphOon = 104
+  FollowRecommendation = 105
+  
+  // Notification signals
+  NotificationClick = 201
+  
+  // Home timeline signals
+  HomeTweetClick = 301
+  HomeVideoView = 302
+  
+  // Negative signals
+  TweetReport = 1101
+  TweetDontLike = 1102
+  AccountBlock = 1104
+  AccountMute = 1105
+}
+```
+
+### SimilarityEngineType
+
+Enum identifying which similarity/recommendation algorithm was used.
+
+```thrift
+enum SimilarityEngineType {
+  SimClustersANN = 1                    # SimClusters Approximate Nearest Neighbor
+  TweetBasedUserTweetGraph = 2
+  TweetBasedTwHINANN = 3               # TwHIN (Twitter Heterogeneous Information Network)
+  Follow2VecANN = 4
+  UTEG = 17                            # User Tweet Entity Graph
+  ConsumerEmbeddingBasedTwoTowerANN = 14
+  TwhinCollabFilter = 12
+  EarlybirdRecencyBasedSimilarityEngine = 21
+  EarlybirdModelBasedSimilarityEngine = 22
+  # ... (35+ total engine types)
+}
+```
+
+Key algorithms:
+- **SimClustersANN** - Community-based clustering and similarity
+- **TweetBasedTwHINANN** - Heterogeneous graph neural network
+- **UTEG** - User Tweet Entity Graph engagement-based
+- **TwhinCollabFilter** - Collaborative filtering with TwHIN embeddings
+- **Earlybird*** - Real-time search index-based
+
+## Error Types
+
+### ValidationExceptionList
+
+List of validation errors with details reported to clients.
+
+```thrift
+struct ValidationExceptionList {
+  1: required list<ValidationException> errors
+}
+
+struct ValidationException {
+  1: required string message
+  2: optional string field
+}
+```
+
+### ServerError
+
+Generic server error. Details are not reported to clients for security.
+
+```thrift
+exception ServerError {
+  1: string message
+}
+```
+
+## Data Annotations
+
+Thrift definitions include personal data annotations for privacy compliance:
+
+- `personalDataType='UserId'` - Twitter user identifier
+- `personalDataType='TweetId'` - Tweet identifier
+- `personalDataType='IpAddress'` - IP address
+- `personalDataType='DeviceId'` - Device identifier
+- `hasPersonalData='true'` - Struct contains personal data
+- `persisted='true'` - Data may be persisted to storage
+
+## Related Documentation
+
+- [CR Mixer API](/api/cr-mixer-api) - CR Mixer service endpoints
+- [Follow Recommendations Service API](/api/frs-api) - FRS service endpoints
+- [Data Record Formats](/api/data-records) - ML data format
+
+## Source Files
+
+Thrift definitions can be found in the source repository:
+
+- `cr-mixer/thrift/src/main/thrift/` - CR Mixer definitions
+- `follow-recommendations-service/thrift/src/main/thrift/` - FRS definitions
+- `src/thrift/com/twitter/` - Shared common definitions

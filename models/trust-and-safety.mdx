@@ -1,0 +1,210 @@
+---
+title: "Trust and Safety Models"
+description: "ML models for detecting NSFW, toxic, and abusive content"
+---
+
+## Overview
+
+X's Trust and Safety models detect problematic content to maintain platform quality and user safety. These models filter content that violates policies or degrades user experience, ranging from NSFW media to abusive behavior.
+
+<Warning>
+Several additional models and rules remain proprietary due to the adversarial nature of trust and safety work. The team continues evaluating what can be safely open-sourced.
+</Warning>
+
+## Open Source Models
+
+X has open-sourced the training code for four key models:
+
+### pNSFWMedia
+
+<Card title="NSFW Media Detection" icon="image">
+  Detects tweets containing NSFW (Not Safe For Work) images, including adult and pornographic content.
+</Card>
+
+**What it detects:**
+- Adult content
+- Pornographic images
+- Sexually explicit media
+
+**Use cases:**
+- Content filtering for sensitive media settings
+- Protecting users who haven't opted into adult content
+- Compliance with app store policies
+
+### pNSFWText
+
+<Card title="NSFW Text Detection" icon="text">
+  Identifies tweets with NSFW text content covering adult and sexual topics.
+</Card>
+
+**What it detects:**
+- Adult/sexual language
+- Explicit text content
+- Sexually suggestive descriptions
+
+**Use cases:**
+- Text-based content filtering
+- Search result filtering
+- Recommendation filtering for sensitive users
+
+### pToxicity
+
+<Card title="Toxic Content Detection" icon="triangle-exclamation">
+  Detects toxic content including insults and certain types of harassment. Toxicity is marginal content that does not violate X's Terms of Service.
+</Card>
+
+**What it detects:**
+- Insults and derogatory language
+- Certain types of harassment
+- Low-quality or divisive content
+- Marginal content (does NOT violate TOS)
+
+<Note>
+Toxic content may be downranked or filtered but does not result in enforcement action since it doesn't violate Terms of Service.
+</Note>
+
+**Use cases:**
+- Downranking in recommendations
+- Reducing exposure to low-quality content
+- Improving timeline quality
+- User experience optimization
+
+### pAbuse
+
+<Card title="Abusive Content Detection" icon="ban">
+  Detects abusive content that violates X's Terms of Service, including hate speech, targeted harassment, and abusive behavior.
+</Card>
+
+**What it detects:**
+- Hate speech
+- Targeted harassment
+- Abusive behavior
+- Terms of Service violations
+
+<Warning>
+Unlike pToxicity, content flagged by pAbuse represents actual policy violations that may result in enforcement actions.
+</Warning>
+
+**Use cases:**
+- Content moderation queue prioritization
+- Automated enforcement actions
+- User reporting systems
+- Safety event detection
+
+## Model Architecture
+
+Location: `trust_and_safety_models/`
+
+### Training Code
+
+The repository includes:
+- Model training scripts
+- Feature extraction pipelines
+- Evaluation frameworks
+- Dataset preparation code
+
+<Tip>
+While the training code is open-sourced, production model weights and some preprocessing steps remain proprietary to prevent adversarial gaming.
+</Tip>
+
+## How They're Used
+
+### Content Filtering Pipeline
+
+<Steps>
+  <Step title="Prediction">
+    Models score tweets and media at creation time or during processing
+  </Step>
+  <Step title="Thresholding">
+    Scores above certain thresholds trigger filtering or moderation actions
+  </Step>
+  <Step title="Action">
+    Content may be filtered, downranked, sent to moderation, or removed based on severity
+  </Step>
+  <Step title="User Controls">
+    Users can adjust sensitivity settings to control filtered content
+  </Step>
+</Steps>
+
+### Integration Points
+
+<Tabs>
+  <Tab title="Visibility Filters">
+    Trust and Safety scores feed into [Visibility Filters](/visibility-filters) which:
+    - Hard-filter violating content
+    - Apply visible product treatments (interstitials)
+    - Downrank marginal content
+    - Support legal compliance
+  </Tab>
+  
+  <Tab title="Ranking Systems">
+    Scores used as signals in ranking models:
+    - Heavy Ranker (timeline)
+    - Notification ranker
+    - Search ranking
+    - Reduces exposure to toxic/unsafe content
+  </Tab>
+  
+  <Tab title="Moderation Queue">
+    High-score content prioritized for human review:
+    - Policy violations flagged for moderators
+    - Potential enforcement actions queued
+    - Appeals processing
+  </Tab>
+</Tabs>
+
+## Safety vs. Quality
+
+<AccordionGroup>
+  <Accordion title="Policy Violations (pAbuse)">
+    **Action**: Enforcement actions including removal, account suspension
+    
+    **Examples**: Hate speech, targeted harassment, threats
+    
+    **Severity**: High - violates Terms of Service
+  </Accordion>
+  
+  <Accordion title="Marginal Content (pToxicity)">
+    **Action**: Downranking, reduced distribution, user filtering
+    
+    **Examples**: Insults, divisive content, low-quality posts
+    
+    **Severity**: Medium - degrades experience but doesn't violate TOS
+  </Accordion>
+  
+  <Accordion title="NSFW Content (pNSFWMedia/Text)">
+    **Action**: Sensitive media treatments, user setting-based filtering
+    
+    **Examples**: Adult content, explicit imagery/text
+    
+    **Severity**: Varies - not inherently violating, but requires user controls
+  </Accordion>
+</AccordionGroup>
+
+## Adversarial Considerations
+
+<Warning>
+X does not open-source all trust and safety systems because:
+- Bad actors could reverse-engineer detection methods
+- Adversaries could train content to evade detection
+- Some techniques rely on keeping detection patterns confidential
+</Warning>
+
+**What remains proprietary:**
+- Many additional safety models and rules
+- Production model weights
+- Detection thresholds and logic
+- Certain preprocessing and feature extraction methods
+- Ensemble architectures and combinations
+
+## Performance Characteristics
+
+- **Latency**: Real-time scoring during tweet creation and processing
+- **Coverage**: All public tweets scored by relevant models
+- **Accuracy**: Continuously evaluated and improved based on human review
+- **Update Frequency**: Models retrained regularly with new data and adversarial examples
+
+## Related Components
+
+- [Ranking Systems](/ml/ranking) - Incorporates safety scores in ranking
+- [Home Mixer](/services/home-mixer) - Applies visibility filtering using these models

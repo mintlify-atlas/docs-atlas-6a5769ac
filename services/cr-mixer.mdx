@@ -1,0 +1,205 @@
+---
+title: "CR Mixer"
+description: "Candidate Retrieval and Mixing service for fast iteration on candidate generation"
+---
+
+## Overview
+
+CR-Mixer (Candidate Retrieval Mixer) is a candidate generation service designed to speed up iteration and development of candidate generation and light ranking for Twitter's recommendation systems. It acts as a lightweight coordinating layer that delegates candidate generation tasks to underlying compute services.
+
+## Purpose
+
+CR-Mixer was proposed as part of Twitter's Personalization Strategy to:
+
+- **Speed up iteration** on candidate generation pipelines
+- **Centralize candidate fetching** from multiple sources
+- **Provide light ranking** capabilities before heavy ranking
+- **Simplify testing** of new candidate sources and mixing strategies
+- **Deliver more value** to users through faster experimentation
+
+## Architecture
+
+CR-Mixer acts as a **configurator and delegator**, providing abstractions for the challenging parts of candidate generation:
+
+<CardGroup cols={2}>
+  <Card title="1-Stop-Shop" icon="shop">
+    Centralized platform for fetching and mixing candidate sources
+  </Card>
+  <Card title="Managed Platform" icon="server">
+    Shared, performant infrastructure for candidate generation
+  </Card>
+  <Card title="Light Ranking" icon="ranking-star">
+    Initial ranking layer before heavy ML models
+  </Card>
+  <Card title="Common Filtering" icon="filter">
+    Shared filtering logic across use cases
+  </Card>
+</CardGroup>
+
+## Pipeline Structure
+
+CR-Mixer's pipeline consists of 4 main steps:
+
+<Steps>
+  <Step title="Source Signal Extraction">
+    Fetch source signals externally from stores like:
+    - **UserProfileService** - User profile and preference data
+    - **RealGraph** - User interaction and engagement graphs
+    - Other signal stores for context and personalization
+  </Step>
+  
+  <Step title="Candidate Generation">
+    Call external candidate generation services and cache results:
+    - Tweet candidate sources
+    - User candidate sources
+    - Content-based recommendations
+    - Collaborative filtering sources
+  </Step>
+  
+  <Step title="Filtering">
+    Apply filters for:
+    - Deduplication across sources
+    - Pre-ranking quality filters
+    - Basic eligibility checks
+    - Content policy filtering
+  </Step>
+  
+  <Step title="Light Ranking">
+    Initial ranking using lightweight models and heuristics before passing to heavy rankers
+  </Step>
+</Steps>
+
+## Key Features
+
+### Peripheral Tooling
+
+CR-Mixer provides comprehensive tooling for monitoring and debugging:
+
+- **Scribing** - Detailed logging of candidate generation pipeline
+- **Debugging** - Tools to trace candidate flow through the system
+- **Monitoring** - Real-time metrics and alerting
+- **Version Control** - Track changes to candidate sources and configurations
+- **Feature Switches** - Co-owned feature flag system for gradual rollouts
+
+### Performance Optimization
+
+CR-Mixer handles performance issues through:
+
+- **Caching** - Results from expensive candidate generation calls
+- **Batching** - Efficient batch calls to downstream services
+- **Parallel Fetching** - Concurrent calls to multiple candidate sources
+- **Timeouts** - Graceful degradation when sources are slow
+
+## Use Cases
+
+CR-Mixer supports various Twitter recommendation use cases:
+
+<CardGroup cols={2}>
+  <Card title="Home Timeline" icon="house">
+    Generate tweet candidates for For You timeline
+  </Card>
+  <Card title="Notifications" icon="bell">
+    Find tweets for push notification recommendations
+  </Card>
+  <Card title="Search" icon="magnifying-glass">
+    Supplement search results with recommended content
+  </Card>
+  <Card title="Explore" icon="compass">
+    Power content discovery in Explore tab
+  </Card>
+</CardGroup>
+
+## Integration Pattern
+
+Services integrate with CR-Mixer to fetch mixed candidates:
+
+```scala
+// Example: Fetching candidates from CR-Mixer
+val crMixerRequest = CrMixerRequest(
+  userId = targetUserId,
+  product = ProductType.Home,
+  maxResults = 500,
+  excludedTweetIds = previouslySeenTweets
+)
+
+val candidates = crMixerClient.getCandidates(crMixerRequest)
+```
+
+<Note>
+CR-Mixer acts as an intermediary between high-level product surfaces (Home, Notifications) and low-level candidate sources, simplifying the integration complexity.
+</Note>
+
+## Signal Extraction
+
+CR-Mixer extracts various signals to inform candidate generation:
+
+### User Signals
+- Recent engagements (likes, retweets, replies)
+- Follow graph and interests
+- Search history and browsing patterns
+- Language and location preferences
+
+### Context Signals
+- Time of day and day of week
+- Device type and platform
+- Current trends and topics
+- Real-time events
+
+## Candidate Sources
+
+CR-Mixer coordinates fetching from multiple candidate sources:
+
+- **Social Graph** - Tweets from followed accounts
+- **User Tweet Entity Graph (UTEG)** - Graph-based recommendations
+- **Topic-based Sources** - Content matching user interests
+- **Collaborative Filtering** - Similar user recommendations
+- **Trend-based Sources** - Trending and viral content
+
+## Filtering Layer
+
+Common filtering logic applied across all use cases:
+
+```scala
+// Deduplication
+val dedupedCandidates = candidates.distinctBy(_.tweetId)
+
+// Pre-ranking filters
+val filtered = dedupedCandidates
+  .filter(isNotBlocked)
+  .filter(isNotMuted)
+  .filter(meetsQualityThreshold)
+  .filter(isNotPreviouslySeen)
+```
+
+## Light Ranking
+
+Before sending candidates to heavy ML rankers, CR-Mixer applies light ranking:
+
+- **Heuristic scores** based on recency, engagement velocity
+- **Simple ML models** with low latency
+- **Rule-based boosting** for certain content types
+- **Diversity scoring** to ensure variety
+
+<Warning>
+Light ranking must maintain low latency (p99 < 50ms) to avoid blocking the overall recommendation pipeline.
+</Warning>
+
+## Benefits
+
+### For Engineers
+- Faster experimentation with new candidate sources
+- Centralized configuration and monitoring
+- Reduced integration complexity
+- Shared infrastructure and best practices
+
+### For Users
+- More relevant recommendations through better candidate mixing
+- Fresher content from faster iteration cycles
+- Better diversity through multi-source blending
+
+## Related Services
+
+- [Home Mixer](/services/home-mixer) - Uses CR-Mixer for tweet candidates
+- [Pushservice](/services/pushservice) - Uses CR-Mixer for notification candidates
+- [Follow Recommendations Service](/services/follow-recommendations) - Complementary user recommendations
+- [Timeline Ranker](/services/timelineranker) - Provides ranked candidates from search index

@@ -1,122 +1,106 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "X Recommendation Algorithm",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#1DA1F2",
+    "light": "#64B5F6",
+    "dark": "#0D8BD9"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/twitter/the-algorithm"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/twitter/the-algorithm"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Overview",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "architecture",
+              "how-it-works"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Services",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "services/home-mixer",
+              "services/cr-mixer",
+              "services/follow-recommendations",
+              "services/pushservice",
+              "services/timelineranker",
+              "services/tweetypie"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Models & Embeddings",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "models/simclusters",
+              "models/twhin",
+              "models/real-graph",
+              "models/graph-features",
+              "models/trust-and-safety"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Machine Learning",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "ml/navi",
+              "ml/product-mixer",
+              "ml/twml",
+              "ml/ranking",
+              "ml/candidate-generation"
+            ]
+          },
+          {
+            "group": "Data Pipeline",
+            "pages": [
+              "data/unified-user-actions",
+              "data/user-signals",
+              "data/retrieval-signals",
+              "data/aggregation-framework"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/setup",
+              "development/building",
+              "development/contributing"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Services",
             "pages": [
-              "api-reference/introduction"
+              "api/home-mixer-api",
+              "api/cr-mixer-api",
+              "api/frs-api"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Data Models",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/thrift-definitions",
+              "api/data-records"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,347 @@
+---
+title: "TWML Framework"
+description: "Legacy TensorFlow-based machine learning framework used for training light ranker models in X's recommendation pipeline"
+---
+
+# TWML (Twitter Machine Learning)
+
+TWML is one of X's machine learning frameworks, built on TensorFlow v1. While largely deprecated, it remains in active use for training the Earlybird light ranking models that power X's search-based candidate retrieval.
+
+<Warning>
+  **Legacy Framework**: TWML is no longer under active development. Much of the codebase is out of date and unused. It is maintained specifically for light ranker model training.
+</Warning>
+
+## Overview
+
+TWML (Twitter Machine Learning) was X's original machine learning framework, providing abstractions on top of TensorFlow to simplify model training and deployment. While most ML efforts have migrated to newer frameworks, TWML continues to serve a critical role in the recommendation pipeline.
+
+## Current Usage
+
+TWML is exclusively used for training **Earlybird light ranking models**:
+
+<Card title="Light Ranker Training" icon="graduation-cap">
+  Located in: `src/python/twitter/deepbird/projects/timelines/scripts/models/earlybird/`
+  
+  The light ranker is a critical component that pre-filters candidates from the search index before heavy ranking.
+</Card>
+
+## Core Component: DataRecordTrainer
+
+The `DataRecordTrainer` class contains the core training logic for TWML models:
+
+```python
+# Simplified example from train.py
+class DataRecordTrainer:
+    """Core trainer for TWML models using DataRecord format"""
+    
+    def __init__(self, params):
+        self.params = params
+        self.model = self._build_model()
+        self.optimizer = self._build_optimizer()
+        
+    def _build_model(self):
+        """Constructs the TensorFlow graph for the model"""
+        # Define input features from DataRecord
+        features = self._parse_data_record()
+        
+        # Build model layers
+        hidden = tf.layers.dense(
+            features, 
+            units=self.params.hidden_size,
+            activation=tf.nn.relu
+        )
+        
+        # Output layer for ranking score
+        logits = tf.layers.dense(hidden, units=1)
+        
+        return logits
+        
+    def train(self, train_data, eval_data):
+        """Training loop for the model"""
+        for epoch in range(self.params.num_epochs):
+            # Training step
+            loss = self._train_epoch(train_data)
+            
+            # Evaluation
+            metrics = self._evaluate(eval_data)
+            
+            # Checkpoint saving
+            self._save_checkpoint(epoch, metrics)
+```
+
+## Light Ranker Training Pipeline
+
+The light ranker training process follows these steps:
+
+<Steps>
+  <Step title="Data Collection">
+    Gather user engagement signals from production logs:
+    
+    - Tweet clicks
+    - Video watch time
+    - Favorites (likes)
+    - Retweets
+    - Quote tweets
+    - Replies
+    
+    These signals are stored in the DataRecord format.
+  </Step>
+  
+  <Step title="Feature Engineering">
+    Extract features from DataRecords:
+    
+    ```python
+    # Example features for light ranker
+    features = {
+        # User features
+        'user_followers_count': user.followers,
+        'user_reputation': user.tweepcred_score,
+        
+        # Tweet features  
+        'tweet_age_seconds': now - tweet.created_at,
+        'tweet_has_media': int(tweet.has_media),
+        'tweet_has_url': int(tweet.has_url),
+        
+        # Engagement features
+        'author_engagement_rate': author.avg_engagement,
+        'tweet_early_engagement': tweet.engagement_1hr,
+    }
+    ```
+  </Step>
+  
+  <Step title="Model Training">
+    Train using the DataRecordTrainer:
+    
+    ```bash
+    # Training command (simplified)
+    python train.py \
+      --train_data_path=/path/to/train/data \
+      --eval_data_path=/path/to/eval/data \
+      --model_dir=/path/to/model/output \
+      --num_epochs=10 \
+      --learning_rate=0.001
+    ```
+  </Step>
+  
+  <Step title="Model Export">
+    Export trained model for serving in Earlybird search index
+  </Step>
+  
+  <Step title="Deployment">
+    Deploy model to production Earlybird instances for real-time scoring
+  </Step>
+</Steps>
+
+## DataRecord Format
+
+TWML uses a proprietary **DataRecord** format for training data:
+
+```python
+# DataRecord structure (conceptual)
+class DataRecord:
+    """Container for training examples"""
+    
+    # Sparse binary features (feature ID present/absent)
+    binary_features: Set[int]
+    
+    # Sparse continuous features (feature ID -> value)
+    continuous_features: Dict[int, float]
+    
+    # Dense features (fixed-size vector)
+    dense_features: List[float]
+    
+    # Labels for supervised learning
+    labels: Dict[str, float]
+```
+
+**Key characteristics:**
+- Efficient storage of sparse features
+- Support for multi-task learning (multiple labels)
+- Optimized for TensorFlow v1 input pipelines
+
+## Integration with Ranking Pipeline
+
+TWML-trained light ranker models integrate into the recommendation pipeline:
+
+<CodeGroup>
+```python Model Training (TWML)
+# Train light ranker with TWML
+trainer = DataRecordTrainer(params)
+model = trainer.train(train_data, eval_data)
+model.export_for_serving()
+```
+
+```scala Model Serving (Earlybird)
+// Earlybird uses the trained model for scoring
+val candidates = searchIndex.query(query)
+val scored = lightRanker.score(candidates)
+val topK = scored.sortBy(_.score).take(k)
+```
+</CodeGroup>
+
+## Light Ranker Model Architecture
+
+The light ranker uses a relatively simple architecture optimized for low latency:
+
+```python
+# Simplified light ranker architecture
+def build_light_ranker(features, params):
+    """
+    Lightweight neural network for fast candidate scoring
+    """
+    # Input layer - sparse and dense features
+    sparse_features = embed_sparse_features(
+        features.binary_features,
+        embedding_size=params.embedding_size
+    )
+    
+    dense_features = features.dense_features
+    
+    # Concatenate all features
+    combined = tf.concat([
+        sparse_features,
+        dense_features
+    ], axis=1)
+    
+    # Hidden layers (typically 2-3 layers)
+    hidden1 = tf.layers.dense(
+        combined, 
+        units=256, 
+        activation=tf.nn.relu
+    )
+    
+    hidden2 = tf.layers.dense(
+        hidden1, 
+        units=128, 
+        activation=tf.nn.relu
+    )
+    
+    # Output layer - ranking score
+    logits = tf.layers.dense(hidden2, units=1)
+    
+    return logits
+```
+
+## Training Objectives
+
+The light ranker optimizes for multiple engagement signals:
+
+<Tabs>
+  <Tab title="Primary Objective">
+    **Tweet Click Prediction**
+    
+    The primary label is whether the user clicked on a tweet:
+    
+    ```python
+    # Binary classification loss
+    click_loss = tf.losses.sigmoid_cross_entropy(
+        labels=labels['click'],
+        logits=model_output
+    )
+    ```
+  </Tab>
+  
+  <Tab title="Secondary Objectives">
+    **Video Watch Time**
+    
+    For video content, also predict watch duration:
+    
+    ```python
+    # Regression loss for video watch time
+    watch_time_loss = tf.losses.mean_squared_error(
+        labels=labels['video_watch_time'],
+        predictions=model_output
+    )
+    ```
+  </Tab>
+  
+  <Tab title="Combined Loss">
+    **Multi-Task Learning**
+    
+    Combine objectives with learned weights:
+    
+    ```python
+    # Weighted combination
+    total_loss = (
+        alpha * click_loss + 
+        beta * watch_time_loss
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="DataRecord Format" icon="database">
+    Efficient sparse feature representation optimized for large-scale training
+  </Card>
+  <Card title="Multi-Task Learning" icon="list-check">
+    Support for multiple training objectives (clicks, engagement, watch time)
+  </Card>
+  <Card title="TensorFlow v1" icon="brain">
+    Built on TensorFlow 1.x with familiar training APIs
+  </Card>
+  <Card title="Production Proven" icon="circle-check">
+    Battle-tested on billions of training examples at X scale
+  </Card>
+</CardGroup>
+
+## Limitations
+
+<Warning>
+  **Deprecated Technology Stack**
+  
+  - Built on TensorFlow v1 (no longer supported)
+  - Limited model architecture flexibility
+  - Lacks modern ML features (dynamic computation graphs, eager execution)
+  - No active development or feature additions
+</Warning>
+
+## Migration Path
+
+For new models, X has migrated to modern frameworks:
+
+<Steps>
+  <Step title="Heavy Ranker">
+    Uses PyTorch with more sophisticated architectures
+    
+    See: `the-algorithm-ml/projects/home/recap/`
+  </Step>
+  
+  <Step title="Other Models">
+    New models use PyTorch, JAX, or TensorFlow 2.x
+  </Step>
+  
+  <Step title="Light Ranker Migration">
+    Eventually, light ranker training will migrate away from TWML
+  </Step>
+</Steps>
+
+## File Locations
+
+<CodeGroup>
+```bash Training Scripts
+# Main training script
+src/python/twitter/deepbird/projects/timelines/scripts/models/earlybird/train.py
+
+# Model configuration
+src/python/twitter/deepbird/projects/timelines/scripts/models/earlybird/README.md
+```
+
+```bash TWML Core
+# Core TWML framework (legacy)
+twml/
+```
+</CodeGroup>
+
+## Learn More
+
+<CardGroup cols={2}>
+  <Card title="Ranking Systems" href="/ml/ranking" icon="ranking-star">
+    Learn how light ranker fits into the overall ranking pipeline
+  </Card>
+  <Card title="Candidate Generation" href="/ml/candidate-generation" icon="filter">
+    Understand the candidate sourcing that feeds the light ranker
+  </Card>
+</CardGroup>

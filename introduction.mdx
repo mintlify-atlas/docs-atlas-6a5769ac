@@ -1,0 +1,176 @@
+---
+title: X's recommendation algorithm
+description: Open-source recommendation system that powers For You Timeline, Search, Explore, and Notifications across X
+---
+
+# X's recommendation algorithm
+
+X's Recommendation Algorithm is a sophisticated set of services and jobs responsible for serving feeds of posts and content across all X product surfaces. Released as open-source, it represents one of the largest and most complex recommendation systems in production.
+
+<Note>
+  This algorithm powers billions of recommendations daily across For You Timeline, Search, Explore, and Notifications.
+</Note>
+
+## What makes this unique
+
+X's recommendation system combines multiple state-of-the-art machine learning models, graph-based algorithms, and real-time data processing to deliver personalized content at massive scale:
+
+- **Real-time processing** - User actions are processed in real-time to immediately influence recommendations
+- **Multi-source candidate generation** - Combines in-network and out-of-network content from diverse sources
+- **Advanced ML models** - Uses neural networks, graph embeddings, and community detection algorithms
+- **Transparency** - Open-source codebase allowing public scrutiny and contributions
+
+## Explore the system
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand the overall system design and how major components interconnect
+  </Card>
+  <Card title="How it works" icon="gears" href="/how-it-works">
+    Deep dive into the recommendation pipeline from candidate generation to final ranking
+  </Card>
+  <Card title="Core services" icon="server" href="/services/home-mixer">
+    Explore the key services that power the recommendation system
+  </Card>
+  <Card title="ML models" icon="brain" href="/models/simclusters">
+    Learn about SimClusters, TwHIN, and other machine learning models
+  </Card>
+  <Card title="Data pipeline" icon="database" href="/data/unified-user-actions">
+    Discover how user signals and actions flow through the system
+  </Card>
+  <Card title="Development" icon="code" href="/development/setup">
+    Get started building and contributing to the project
+  </Card>
+</CardGroup>
+
+## Key capabilities
+
+### Candidate generation
+
+The system narrows down from approximately **1 billion tweets** to a few thousand candidates using multiple sources:
+
+- **Search Index (Earlybird)** - Provides ~50% of For You Timeline tweets from in-network content
+- **User Tweet Entity Graph (UTEG)** - Graph-based traversal using GraphJet framework
+- **Follow Recommendation Service (FRS)** - Suggests content from accounts you might want to follow
+- **Cr-Mixer** - Coordinates fetching of out-of-network candidates
+
+### Ranking and scoring
+
+Candidates are scored using a multi-stage ranking process:
+
+1. **Light Ranker** - Fast initial ranking to pre-filter candidates
+2. **Heavy Ranker** - Deep neural network using ~6,000 features
+3. **Feature Hydration** - Enriches candidates with signals for ranking
+
+### Filtering and mixing
+
+Final timeline construction applies multiple filters and mixing strategies:
+
+- Author diversity to prevent timeline dominance
+- Content balance between in-network and out-of-network
+- Visibility filters for blocked, muted, and NSFW content
+- Integration of ads, who-to-follow modules, and prompts
+
+## Core technologies
+
+<CardGroup cols={3}>
+  <Card title="SimClusters" icon="circle-nodes">
+    Community detection and sparse embeddings for users and content
+  </Card>
+  <Card title="TwHIN" icon="project-diagram">
+    Dense knowledge graph embeddings for users and posts
+  </Card>
+  <Card title="GraphJet" icon="share-nodes">
+    Real-time graph processing for candidate generation
+  </Card>
+  <Card title="Product Mixer" icon="blender">
+    Framework for building and composing content feeds
+  </Card>
+  <Card title="Navi" icon="rocket">
+    High-performance ML model serving written in Rust
+  </Card>
+  <Card title="Real Graph" icon="users">
+    Predicts user-to-user interaction likelihood
+  </Card>
+</CardGroup>
+
+## User signals
+
+The algorithm uses a rich set of explicit and implicit user signals:
+
+<AccordionGroup>
+  <Accordion title="Explicit signals">
+    - **Tweet Favorite** - Likes indicate strong positive interest
+    - **Retweet** - Amplification signal showing endorsement
+    - **Reply** - Engagement and conversation participation
+    - **Quote Tweet** - Retweet with commentary
+    - **Follow/Unfollow** - Account-level preferences
+    - **Bookmark** - Save for later interest signal
+  </Accordion>
+  
+  <Accordion title="Implicit signals">
+    - **Tweet Click** - Viewing tweet detail pages
+    - **Video Watch** - Time spent watching video content
+    - **Profile Visits** - Interest in specific accounts
+    - **Notification Opens** - Engagement with push notifications
+  </Accordion>
+  
+  <Accordion title="Negative signals">
+    - **Tweet Don't Like** - Explicit negative feedback
+    - **Tweet Report** - Content quality signals
+    - **Author Mute** - Reduce visibility without unfollowing
+    - **Author Block** - Strongest negative signal
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  These signals are used both as training labels for machine learning models and as features during inference.
+</Warning>
+
+## Product surfaces
+
+The recommendation algorithm currently powers:
+
+### For You Timeline
+
+Personalized feed combining in-network tweets from people you follow with recommended out-of-network content. Uses the full recommendation pipeline with candidate generation, ranking, filtering, and mixing.
+
+### Following Timeline
+
+Reverse chronological tweets from accounts you follow, with light filtering and ads integration.
+
+### Recommended Notifications
+
+Push notifications recommending relevant content, powered by dedicated light and heavy ranking models optimized for notification engagement.
+
+## Getting started
+
+<Steps>
+  <Step title="Understand the architecture">
+    Start with the [architecture overview](/architecture) to see how components fit together.
+  </Step>
+  <Step title="Learn how it works">
+    Read [how it works](/how-it-works) to understand the recommendation pipeline.
+  </Step>
+  <Step title="Explore the code">
+    Browse the source code at [github.com/twitter/the-algorithm](https://github.com/twitter/the-algorithm)
+  </Step>
+  <Step title="Contribute">
+    Submit issues and pull requests to help improve the algorithm.
+  </Step>
+</Steps>
+
+## Contributing
+
+X invites the community to submit GitHub issues and pull requests for suggestions on improving the recommendation algorithm. The team is working on tools to manage these suggestions and sync changes to their internal repository.
+
+<Note>
+  Security concerns should be routed to the official [bug bounty program](https://hackerone.com/x) through HackerOne.
+</Note>
+
+## Resources
+
+- [Engineering blog post](https://blog.x.com/engineering/en_us/topics/open-source/2023/twitter-recommendation-algorithm) - Introduction to the algorithm
+- [Open source announcement](https://blog.x.com/en_us/topics/company/2023/a-new-era-of-transparency-for-twitter) - Why X open-sourced the algorithm
+- [GitHub repository](https://github.com/twitter/the-algorithm) - Full source code
+- [SimClusters paper](https://www.kdd.org/kdd2020/accepted-papers/view/simclusters-community-based-representations-for-heterogeneous-recommendatio) - KDD 2020 publication

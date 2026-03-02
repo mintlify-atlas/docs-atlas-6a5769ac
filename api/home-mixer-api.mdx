@@ -1,0 +1,132 @@
+---
+title: Home Mixer API
+description: API reference for Twitter's Home Mixer service, which constructs and serves Home Timeline content
+---
+
+## Overview
+
+Home Mixer is the main service used to construct and serve Twitter's Home Timelines. It powers the For You timeline, Following timeline, and Lists. Home Mixer is built on Product Mixer, Twitter's custom Scala framework for building feeds of content.
+
+The service implements a pipeline architecture that processes requests through multiple stages:
+
+- **Candidate Generation** - Fetch tweets from various sources (Earlybird, User Tweet Entity Graph, CR Mixer, FRS)
+- **Feature Hydration** - Fetch ~6000 features needed for ranking
+- **Scoring and Ranking** - Use ML models to score and rank candidates
+- **Filtering** - Apply heuristics for diversity, content balance, and visibility
+- **Mixing** - Integrate tweets with ads, who-to-follow modules, and other content
+
+## Service Interface
+
+Home Mixer uses Product Mixer's pipeline framework and does not expose a direct Thrift service interface. Instead, it processes requests through:
+
+### Product Pipelines
+
+**ForYouProductPipelineConfig**
+
+Handles requests for the main For You timeline.
+
+<ParamField path="clientContext" type="ClientContext" required>
+  Client context including user ID, guest ID, app ID, device information
+</ParamField>
+
+<ParamField path="product" type="Product" required>
+  Product identifier (e.g., Home, HomeRealTime)
+</ParamField>
+
+<ParamField path="productContext" type="ProductContext">
+  Product-specific parameters and configuration
+</ParamField>
+
+<ParamField path="maxResults" type="int32">
+  Maximum number of results to return
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Pagination cursor for fetching additional results
+</ParamField>
+
+### Mixer Pipelines
+
+**ForYouScoredTweetsMixerPipelineConfig**
+
+Main orchestration layer that mixes tweets with ads and user recommendations.
+
+<ResponseField name="tweets" type="list<ScoredTweet>">
+  List of scored and ranked tweets
+  
+  <ResponseField name="tweetId" type="int64">
+    Unique identifier for the tweet
+  </ResponseField>
+  
+  <ResponseField name="score" type="double">
+    Ranking score for the tweet
+  </ResponseField>
+  
+  <ResponseField name="authorId" type="int64">
+    User ID of the tweet author
+  </ResponseField>
+  
+  <ResponseField name="features" type="map<string, double>">
+    Hydrated features used for ranking
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="cursor" type="string">
+  Cursor for pagination
+</ResponseField>
+
+## Candidate Sources
+
+Home Mixer fetches tweet candidates from multiple sources:
+
+### In-Network Sources
+
+**ScoredTweetsInNetworkCandidatePipelineConfig**
+
+Fetches tweets from accounts the user follows using the Earlybird search index.
+
+### Out-of-Network Sources
+
+**ScoredTweetsTweetMixerCandidatePipelineConfig**
+
+Fetches recommended tweets from CR Mixer.
+
+**ScoredTweetsUtegCandidatePipelineConfig**
+
+Fetches tweets based on User Tweet Entity Graph engagement signals.
+
+**ScoredTweetsFrsCandidatePipelineConfig**
+
+Fetches tweets from accounts recommended by Follow Recommendations Service.
+
+## Ranking and Scoring
+
+The service applies ML-based ranking using the **ScoredTweetsRecommendationPipelineConfig**:
+
+1. Feature hydration fetches ~6000 features per tweet
+2. ML model computes ranking scores
+3. Filters apply author diversity, content balance, and feedback fatigue rules
+4. Final re-ranking and mixing with non-tweet content
+
+## Pipeline Configuration
+
+Pipelines are configured through:
+
+- **Feature Switches** - Toggle features on/off for experimentation
+- **Decider Keys** - Control ranking and filtering logic
+- **Model IDs** - Specify which ML models to use for scoring
+
+## Error Handling
+
+Home Mixer follows Product Mixer's error handling conventions:
+
+- Validation errors return detailed error messages to clients
+- Server errors are logged but details are not exposed to clients
+- Partial failures in candidate sources are handled gracefully
+- Circuit breakers prevent cascading failures
+
+## Related Services
+
+- [CR Mixer API](/api/cr-mixer-api) - Candidate generation and mixing
+- [Follow Recommendations Service API](/api/frs-api) - Account recommendations
+- Product Mixer Core - Pipeline framework

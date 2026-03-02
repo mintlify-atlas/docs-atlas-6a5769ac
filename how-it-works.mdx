@@ -1,0 +1,446 @@
+---
+title: How the recommendation algorithm works
+description: End-to-end explanation of how X generates personalized recommendations from candidate generation to final ranking
+---
+
+# How the recommendation algorithm works
+
+X's recommendation algorithm transforms billions of potential tweets into a personalized timeline of hundreds of posts tailored to each user's interests. This page explains the end-to-end pipeline from candidate generation through ranking, filtering, and mixing.
+
+## Pipeline overview
+
+The For You Timeline recommendation pipeline consists of five major stages:
+
+<Steps>
+  <Step title="Candidate generation">
+    Narrow down from ~1 billion tweets to a few thousand candidates
+  </Step>
+  <Step title="Feature hydration">
+    Enrich candidates with ~6,000 features needed for ranking
+  </Step>
+  <Step title="Scoring and ranking">
+    Use machine learning models to score and rank candidates
+  </Step>
+  <Step title="Filters and heuristics">
+    Apply diversity, quality, and safety filters
+  </Step>
+  <Step title="Mixing">
+    Integrate tweets with ads, who-to-follow modules, and other content
+  </Step>
+</Steps>
+
+<Info>
+  The entire pipeline typically completes in under 1 second, processing candidates from multiple sources in parallel.
+</Info>
+
+## Stage 1: Candidate generation
+
+Candidate generation is the most critical filtering stage, reducing the search space from approximately **1 billion tweets** to a few thousand high-potential candidates.
+
+### Candidate sources
+
+The For You Timeline pulls candidates from multiple sources in parallel:
+
+#### Search Index (Earlybird) - ~50% of content
+
+Earlybird retrieves in-network tweets (from accounts you follow):
+
+- Searches recent tweets from followed accounts
+- Applies Light Ranker for initial scoring
+- Returns top candidates based on relevance signals
+- Provides roughly half of all For You Timeline tweets
+
+Reference: `src/java/com/twitter/search/README.md`
+
+#### Tweet Mixer - Out-of-network coordination
+
+Tweet Mixer coordinates fetching out-of-network candidates from multiple underlying services:
+
+- Aggregates candidates from specialized sources
+- Deduplicates across sources
+- Applies basic quality filters
+
+Reference: `tweet-mixer/`
+
+#### User Tweet Entity Graph (UTEG) - Graph traversal
+
+UTEG finds candidates through graph traversals:
+
+- Maintains in-memory graph of user-tweet interactions
+- Traverses from your interactions to similar tweets
+- Uses collaborative filtering (users like you also liked...)
+- Built on the GraphJet framework for real-time updates
+
+Example traversal: You favorited Tweet A → Other users who favorited Tweet A also favorited Tweet B → Tweet B becomes a candidate
+
+Reference: `src/scala/com/twitter/recos/user_tweet_entity_graph/README.md`
+
+#### Follow Recommendation Service (FRS) - New accounts
+
+FRS provides candidates from accounts you don't yet follow:
+
+- Recommends accounts based on your interests
+- Surfaces tweets from those recommended accounts
+- Helps discover new content and communities
+
+Reference: `follow-recommendations-service/README.md`
+
+### User signals for candidate generation
+
+Candidate sources leverage a comprehensive set of user signals to find relevant tweets:
+
+| Signal | Description | Usage |
+|--------|-------------|-------|
+| **Author Follow** | Accounts you explicitly follow | Features/Labels across all systems |
+| **Tweet Favorite** | Tweets you liked | Features/Labels - strongest positive signal |
+| **Retweet** | Tweets you amplified | Features/Labels - strong endorsement |
+| **Quote Tweet** | Retweets with your commentary | Features/Labels |
+| **Tweet Reply** | Tweets you replied to | Features - engagement signal |
+| **Tweet Click** | Tweets you clicked to view details | Features/Labels - implicit interest |
+| **Tweet Video Watch** | Videos you watched | Features/Labels - time-based engagement |
+| **Author Unfollow** | Recently unfollowed accounts | Features - negative signal |
+| **Author Mute** | Muted accounts | Features - reduce without unfollowing |
+| **Author Block** | Blocked accounts | Features - strongest negative signal |
+| **Tweet Don't Like** | "Not interested in this tweet" feedback | Features - explicit negative |
+| **Tweet Report** | Reported tweets | Features - quality signal |
+| **Notification Open** | Push notifications you opened | Features - engagement indicator |
+
+Reference: `RETREIVAL_SIGNALS.md`
+
+<Note>
+  These signals are used both as training labels (what to optimize for) and as features (input to the model during inference).
+</Note>
+
+### Signal usage by component
+
+Different components leverage signals in different ways:
+
+- **SimClusters** - Uses favorites, video views, follows for embeddings and labels
+- **TwHIN** - Uses favorites, retweets, quotes, follows as features and labels
+- **UTEG** - Uses favorites, retweets, quotes, replies as graph edges
+- **FRS** - Uses comprehensive signals for follow recommendations
+- **Light Ranking** - Uses favorites, retweets, quotes, clicks, video views as labels
+
+Reference: `RETREIVAL_SIGNALS.md:32`
+
+## Stage 2: Feature hydration
+
+Once candidates are generated, the system hydrates approximately **6,000 features** for each tweet. These features feed into the ranking models.
+
+### Feature categories
+
+#### Tweet features
+- Content type (text, image, video, link)
+- Media attributes (video length, image count)
+- Tweet metadata (timestamp, language, source)
+- Engagement counts (likes, retweets, replies, quotes)
+- Author information (follower count, verification status)
+
+#### User-tweet features
+- Similarity scores from SimClusters and TwHIN embeddings
+- Real Graph scores (likelihood of interaction with author)
+- Historical engagement with similar content
+- Topic relevance scores
+
+#### Graph features
+- Social connections to tweet author
+- Number of followees who engaged with tweet
+- Graph distance from your network
+- Mutual follows with author
+
+Reference: `graph-feature-service/README.md`
+
+#### Temporal features
+- Tweet recency
+- Author's recent posting frequency  
+- Your engagement patterns by time of day
+- Trending status
+
+### Aggregation Framework
+
+The Timelines Aggregation Framework generates real-time and batch aggregate features:
+
+- User engagement history (click-through rates, dwell times)
+- Author statistics (average engagement, posting frequency)
+- Time-windowed aggregates (last hour, day, week)
+- Cross-sectional features (engagement on similar topics)
+
+Reference: `timelines/data_processing/ml_util/aggregation_framework/README.md`
+
+## Stage 3: Scoring and ranking
+
+Ranking uses a two-stage process to efficiently score thousands of candidates:
+
+### Light Ranker
+
+The Light Ranker provides fast initial scoring:
+
+- Runs within Earlybird search index for in-network tweets
+- Uses a smaller, faster model
+- Filters candidates before Heavy Ranker
+- Reduces computational load on Heavy Ranker
+
+For Recommended Notifications, Light Ranker bridges candidate generation and heavy ranking by pre-selecting highly-relevant candidates from the initial pool.
+
+References:
+- For You: `src/python/twitter/deepbird/projects/timelines/scripts/models/earlybird/README.md`
+- Notifications: `pushservice/src/main/python/models/light_ranking/README.md`
+
+### Heavy Ranker
+
+The Heavy Ranker is a deep neural network that produces final rankings:
+
+- Processes all ~6,000 features per tweet
+- Multi-task learning predicting multiple engagement types:
+  - Probability of like/favorite
+  - Probability of retweet
+  - Probability of reply
+  - Probability of engagement (click, dwell, video watch)
+  - Probability of negative feedback (don't like, report)
+- Combines predictions into a single relevance score
+- Primary determinant of final tweet order
+
+For Notifications, the Heavy Ranker is a multi-task learning model that predicts probabilities that target users will open and engage with sent notifications.
+
+References:
+- For You: [Heavy Ranker for Home](https://github.com/twitter/the-algorithm-ml/blob/main/projects/home/recap/README.md)
+- Notifications: `pushservice/src/main/python/models/heavy_ranking/README.md`
+
+<Warning>
+  The Heavy Ranker must process thousands of candidates in real-time, requiring highly optimized model serving via Navi.
+</Warning>
+
+### Embedding-based scoring
+
+Representation Scorer computes similarity between entities using embeddings:
+
+- User-to-tweet similarity via SimClusters
+- User-to-user similarity via TwHIN  
+- Tweet-to-tweet similarity for related content
+- Topic-to-tweet relevance
+
+Reference: `representation-scorer/README.md`
+
+## Stage 4: Filters and heuristics
+
+After ranking, the pipeline applies multiple filters and heuristics to improve timeline quality and diversity.
+
+### Author diversity
+
+Prevents any single author from dominating your timeline:
+
+- Limits consecutive tweets from same author
+- Ensures variety of voices
+- Applies both globally and within viewport
+
+### Content balance
+
+Balances in-network vs out-of-network content:
+
+- Maintains target ratio (approximately 50/50)
+- Ensures you see both followed accounts and recommendations
+- Adapts based on available candidate quality
+
+Reference: `home-mixer/README.md:25`
+
+### Feedback fatigue
+
+Reduces content similar to items you've negatively engaged with:
+
+- Tracks "don't like" and "not interested" feedback
+- Downranks similar authors, topics, or content types
+- Time-decays old negative feedback
+
+### Deduplication
+
+Removes tweets you've already seen:
+
+- Tracks impression history
+- Filters previously served tweets
+- Handles retweets and quotes of seen tweets
+
+Reference: `home-mixer/README.md:29`
+
+### Visibility filtering
+
+Visibility Filters ensure content safety and compliance:
+
+- **Blocked authors** - Hard filter removing all content from blocked accounts
+- **Muted authors** - Filter content from muted accounts
+- **NSFW content** - Filter based on user settings and content labels
+- **Abusive content** - Filter tweets flagged by trust and safety models
+- **Legal compliance** - DMCA takedowns, country-specific restrictions
+- **Coarse-grained downranking** - Reduce visibility of lower quality content
+
+Reference: `visibilitylib/README.md`
+
+<Info>
+  Visibility Filters protect user trust, ensure legal compliance, maintain product quality, and protect revenue.
+</Info>
+
+## Stage 5: Mixing
+
+The final stage integrates tweets with other content types to create the complete timeline experience.
+
+### Content types mixed into timeline
+
+#### Ads
+
+Promoted tweets integrated into the timeline:
+
+- Fetched from Ads Candidate Pipeline
+- Ranked separately with ads-specific models
+- Inserted at designated positions
+- Labeled as promoted content
+
+Reference: `home-mixer/README.md:83`
+
+#### Who-to-follow modules
+
+Account recommendations encouraging network growth:
+
+- Fetched from Follow Recommendation Service
+- Typically show 3 accounts
+- Personalized based on your interests
+- Include reason for recommendation
+
+Reference: `home-mixer/README.md:84`
+
+#### Prompts
+
+Interactive modules and notifications:
+
+- Topics to follow
+- Feedback requests
+- Product announcements
+- Personalized based on user state
+
+### Product features
+
+Additional features enhance the timeline experience:
+
+#### Conversation modules
+
+Group related tweets into conversations:
+
+- Fetch ancestor tweets (tweets being replied to)
+- Display as threaded conversations
+- Improve context and readability
+
+Reference: `home-mixer/README.md:36`
+
+#### Social context
+
+Show why a tweet is relevant to you:
+
+- "Liked by [friend]"
+- "[Friend] follows [author]"
+- "Trending in [location]"
+- Increases relevance transparency
+
+Reference: `home-mixer/README.md:37`
+
+## Pipeline execution
+
+Home Mixer orchestrates the entire pipeline using Product Mixer's structured architecture:
+
+### Pipeline hierarchy
+
+```
+ForYouProductPipelineConfig
+└── ForYouScoredTweetsMixerPipelineConfig (main orchestration)
+    ├── ForYouScoredTweetsCandidatePipelineConfig
+    │   └── ScoredTweetsRecommendationPipelineConfig
+    │       ├── Candidate Pipelines (parallel)
+    │       │   ├── ScoredTweetsInNetworkCandidatePipelineConfig
+    │       │   ├── ScoredTweetsTweetMixerCandidatePipelineConfig
+    │       │   ├── ScoredTweetsUtegCandidatePipelineConfig
+    │       │   └── ScoredTweetsFrsCandidatePipelineConfig
+    │       └── ScoredTweetsScoringPipelineConfig (Heavy Ranker)
+    ├── ForYouAdsCandidatePipelineConfig
+    └── ForYouWhoToFollowCandidatePipelineConfig
+```
+
+Reference: `home-mixer/README.md:70`
+
+### Execution flow
+
+<Steps>
+  <Step title="Request arrives">
+    ForYouProductPipelineConfig receives timeline request
+  </Step>
+  <Step title="Candidate fetching">
+    Multiple Candidate Pipelines execute in parallel, each fetching from their source
+  </Step>
+  <Step title="Candidate merging">
+    ScoredTweetsRecommendationPipelineConfig merges candidates from all sources
+  </Step>
+  <Step title="Feature hydration">
+    Hydrate ~6,000 features for each candidate
+  </Step>
+  <Step title="Scoring">
+    ScoredTweetsScoringPipelineConfig applies Heavy Ranker
+  </Step>
+  <Step title="Filtering">
+    Apply diversity, balance, feedback, visibility filters
+  </Step>
+  <Step title="Mixing">
+    ForYouScoredTweetsMixerPipelineConfig mixes tweets with ads and modules
+  </Step>
+  <Step title="Product features">
+    Add conversation modules, social context, and metadata
+  </Step>
+  <Step title="Response">
+    Return marshalled timeline to client
+  </Step>
+</Steps>
+
+<Info>
+  Product Mixer's pipeline architecture makes each stage transparent, testable, and independently monitorable.
+</Info>
+
+## Real-time updates
+
+Several components update in real-time to keep recommendations fresh:
+
+### SimClusters tweet embeddings
+
+Tweet embeddings update in real-time as tweets receive favorites:
+
+- Streaming job monitors favorite events
+- Updates tweet's SimClusters embedding incrementally
+- Enables near-immediate discoverability of trending content
+
+Reference: `src/scala/com/twitter/simclusters_v2/summingbird/README.md`
+
+### GraphJet-based graphs
+
+UTEG and other GraphJet-based services update in real-time:
+
+- Ingest from Unified User Actions stream
+- Add edges for new interactions (favorites, retweets)
+- Enable recommendations based on very recent behavior
+
+Recos Injector processes events into GraphJet input streams.
+
+Reference: `recos-injector/README.md`
+
+## Key takeaways
+
+The X recommendation algorithm:
+
+1. **Narrows efficiently** from billions of tweets to thousands using multiple specialized candidate sources
+2. **Leverages rich signals** from 20+ types of user actions (both explicit and implicit)
+3. **Ranks intelligently** using ~6,000 features and multi-task neural networks
+4. **Ensures quality** through comprehensive filtering for diversity, safety, and user preferences
+5. **Delivers quickly** by parallelizing operations and optimizing for low latency
+6. **Updates in real-time** to surface trending and fresh content immediately
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Learn about the components that power this pipeline
+  </Card>
+  <Card title="Core services" icon="server" href="/services/home-mixer">
+    Deep dive into individual services and their APIs
+  </Card>
+</CardGroup>

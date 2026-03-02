@@ -1,0 +1,170 @@
+---
+title: "Real Graph"
+description: "Machine learning model to predict user interaction likelihood"
+---
+
+## Overview
+
+Real Graph predicts the likelihood of a Twitter user interacting with another user using a gradient boosting tree classifier. It combines batch aggregation of user interactions with ML-based probability scoring to power personalized recommendations.
+
+<Info>
+Also known as **BQE** (BigQuery Engagement), Real Graph processes millions of user interaction pairs daily.
+</Info>
+
+## How It Works
+
+### 1. Graph Representation
+
+Real Graph represents Twitter users as a directed graph where:
+- **Nodes**: Users
+- **Edges**: Interactions between users (follows, favorites, retweets, profile views, etc.)
+- **Features**: Metrics like tweet count, follow count, favorites, and behavioral signals
+
+### 2. Interaction Types
+
+The system tracks both **public** and **private** engagements:
+
+<Tabs>
+  <Tab title="Public Engagements">
+    - Favorites/Likes
+    - Retweets
+    - Follows
+    - Replies
+    - Quote tweets
+  </Tab>
+  <Tab title="Private Engagements">
+    - Profile views
+    - Tweet clicks
+    - Address book contacts (user opt-in)
+    - Link clicks
+    - Video views
+  </Tab>
+</Tabs>
+
+### 3. Training Pipeline
+
+#### Labeled Dataset Creation
+
+1. **Candidate Selection**: Identify edges active during a specific time period from BigQuery
+2. **Label Generation**: Join with interactions occurring one day after the candidate period
+   - **Positive** (label = 1): Interaction occurred
+   - **Negative** (label = 0): No interaction occurred
+3. **Feature Extraction**: Include user behavior metrics, graph features, and interaction history
+
+#### Model Training
+
+<Steps>
+  <Step title="Data Split">
+    Split labeled dataset into training and testing sets based on source user ID using a custom data split method
+  </Step>
+  <Step title="Gradient Boosting">
+    Train a boosted tree classifier with hyperparameters including max iterations and subsample rate
+  </Step>
+  <Step title="Validation">
+    Evaluate model performance on held-out test set
+  </Step>
+  <Step title="Deployment">
+    Deploy model to score user pairs in production
+  </Step>
+</Steps>
+
+### 4. Daily Aggregation (Scio)
+
+Multiple Dataflow jobs run daily to aggregate interaction counts:
+
+```
+User A → User B: {favorites: 15, retweets: 3, profile_views: 2, ...}
+```
+
+#### Aggregation Outputs
+
+- **Daily counts**: Interactions per type between each user pair
+- **Incoming aggregates**: Daily incoming interactions per user
+- **Decayed sums**: Time-decayed rollup of historical interactions
+- **ML scores**: Predicted interaction probability alongside decayed sums
+
+<Note>
+The rollup job combines yesterday's aggregation with today's interactions, maintaining both recent and historical signal.
+</Note>
+
+## Output Scores
+
+Once trained, the model generates a probability score estimating:
+
+```
+P(User A will interact with User B)
+```
+
+This score is used to:
+- Rank candidates in recommendations
+- Filter low-probability candidates early
+- Personalize which accounts and content to show users
+
+## Architecture
+
+### BQE (BigQuery Engagement)
+
+Location: `src/scala/com/twitter/interaction_graph/`
+
+**Components:**
+- BigQuery tables with user interaction graphs
+- Gradient boosting tree classifier
+- Labeled dataset generation pipeline
+- Model training and evaluation jobs
+
+### Scio (Dataflow Aggregation)
+
+Location: `src/scala/com/twitter/interaction_graph/`
+
+**Daily Jobs:**
+1. **Interaction Aggregation**: Count interactions by type per user pair
+2. **Rollup Job**: Combine historical + new interactions with decay
+3. **Incoming Aggregation**: Sum incoming interactions per user
+4. **ML Scoring**: Apply trained model to generate prediction scores
+
+<Tip>
+The decayed sum approach ensures recent interactions have more weight than older ones, keeping predictions relevant.
+</Tip>
+
+## Where It's Used
+
+<CardGroup cols={2}>
+  <Card title="For You Timeline" icon="house">
+    Ranks tweet candidates based on likelihood of engagement with tweet authors
+  </Card>
+  <Card title="Who to Follow" icon="user-plus">
+    Scores potential follow recommendations based on interaction probability
+  </Card>
+  <Card title="Graph Feature Service" icon="diagram-project">
+    Provides interaction scores as features for downstream ranking models
+  </Card>
+  <Card title="Search Results" icon="magnifying-glass">
+    Personalizes search results using user interaction predictions
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Multi-Signal Learning">
+    Combines public and private engagement signals for comprehensive interaction modeling
+  </Accordion>
+  
+  <Accordion title="Time Decay">
+    Recent interactions weighted more heavily than historical ones
+  </Accordion>
+  
+  <Accordion title="Incremental Updates">
+    Daily aggregation keeps interaction counts and scores fresh
+  </Accordion>
+  
+  <Accordion title="Scalable Processing">
+    Dataflow jobs handle millions of user pairs efficiently
+  </Accordion>
+</AccordionGroup>
+
+## Related Components
+
+- [Graph Feature Service](/models/graph-features) - Serves graph features derived from Real Graph scores
+- [Follow Recommendation Service](/services/follow-recommendations) - Uses Real Graph scores for account recommendations
+- [Home Mixer](/services/home-mixer) - Incorporates Real Graph features in timeline ranking

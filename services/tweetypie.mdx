@@ -1,0 +1,424 @@
+---
+title: "Tweetypie"
+description: "Core Tweet service for reading and writing Tweet data"
+---
+
+## Overview
+
+Tweetypie is the **core Tweet service** that handles the reading and writing of Tweet data. It is called by:
+
+- Twitter clients (through GraphQL)
+- Internal Twitter services
+
+Tweetypie provides endpoints to **fetch, create, delete, and edit Tweets**, and calls several backend services to hydrate Tweet-related data.
+
+## Architecture
+
+Tweetypie acts as the central orchestration layer for Tweet operations:
+
+```
+Twitter Clients (GraphQL) / Internal Services
+                ↓
+            Tweetypie
+                ↓
+    ┌───────────┼───────────┬──────────┬─────────┐
+    ↓           ↓           ↓          ↓         ↓
+Manhattan  Twemcache   Talon    MediaService  Other
+  (Storage)  (Cache)  (URLs)    (Media)     Backends
+```
+
+## Read Path
+
+The read path fetches Tweet data from storage/cache and hydrates it with data from various backend services.
+
+<Steps>
+  <Step title="Request Handling">
+    The `get_tweets` request is handled by **GetTweetsHandler**.
+  </Step>
+  
+  <Step title="Tweet Retrieval">
+    **TweetResultRepository** fetches Tweet data:
+    - First checks **Twemcache** (distributed cache)
+    - Falls back to **Manhattan** (distributed database) if cache miss
+  </Step>
+  
+  <Step title="Hydration Pipeline">
+    Raw Tweet data passes through the hydration pipeline to enrich it with:
+    - Expanded URLs
+    - Media metadata
+    - User mentions
+    - Cards and other entities
+  </Step>
+  
+  <Step title="Response">
+    Fully hydrated Tweet is returned to the caller
+  </Step>
+</Steps>
+
+### Relevant Packages
+
+#### Backends
+Wrappers around Thrift services that Tweetypie calls:
+
+```scala
+// Example: Talon backend for URL shortening
+object Talon extends Backend {
+  def expandUrls(shortUrls: Seq[String]): Future[Seq[ExpandedUrl]]
+}
+```
+
+<Note>
+Backends are located at: `tweetypie/server/src/main/scala/com/twitter/tweetypie/backends/`
+</Note>
+
+#### Repositories
+Provide structured interfaces for retrieving data from backends:
+
+```scala
+// UrlRepository wraps the Talon backend
+class UrlRepository(talon: TalonBackend) {
+  def getExpandedUrls(tweetId: Long): Future[Seq[Url]] = {
+    // Fetch and format URL data
+  }
+}
+```
+
+<Note>
+Repositories are located at: `tweetypie/server/src/main/scala/com/twitter/tweetypie/repository/`
+</Note>
+
+#### Hydrators
+Enrich raw Tweet data with additional information:
+
+```scala
+// UrlEntityHydrator expands t.co links
+class UrlEntityHydrator(urlRepository: UrlRepository) extends Hydrator {
+  def hydrate(tweet: Tweet): Future[Tweet] = {
+    urlRepository.getExpandedUrls(tweet.id).map { expandedUrls =>
+      tweet.copy(urls = expandedUrls)
+    }
+  }
+}
+```
+
+Hydrators fetch data using repositories and attach it to Tweets with metadata indicating hydration success.
+
+<Note>
+Hydrators are located at: `tweetypie/server/src/main/scala/com/twitter/tweetypie/hydrator/`
+</Note>
+
+#### Handlers
+Functions that handle requests to Tweetypie endpoints:
+
+```scala
+// GetTweetsHandler processes get_tweets requests
+class GetTweetsHandler(tweetRepo: TweetResultRepository) {
+  def apply(request: GetTweetsRequest): Future[Seq[Tweet]] = {
+    tweetRepo.get(request.tweetIds, request.options)
+  }
+}
+```
+
+<Note>
+Handlers are located at: `tweetypie/server/src/main/scala/com/twitter/tweetypie/handler/`
+</Note>
+
+### Through the Read Path
+
+Detailed flow of a `get_tweets` request:
+
+1. **GetTweetsHandler** receives the request
+2. Uses **TweetResultRepository** (defined in LogicalRepositories.scala:301)
+3. TweetResultRepository uses:
+   - **ManhattanTweetRepository** - fetches from Manhattan storage
+   - Wrapped in **CachingTweetRepository** - adds Twemcache caching layer
+   - Wrapped in **hydration layer** - applies all hydrators
+4. Raw Tweet data flows through **TweetHydration pipeline**
+5. Fully hydrated Tweet returned to caller
+
+<Note>
+The hydration pipeline is described in: `tweetypie/server/src/main/scala/com/twitter/tweetypie/hydrator/TweetHydration.scala:789`
+</Note>
+
+## Write Path
+
+The write path creates or modifies Tweets and updates various backend stores.
+
+<Steps>
+  <Step title="Request Handling">
+    The `post_tweet` request is handled by **PostTweet.scala**.
+  </Step>
+  
+  <Step title="Tweet Building">
+    **TweetBuilder** creates a Tweet from the request:
+    - Text processing and validation
+    - URL shortening via Talon
+    - Media processing
+    - Duplicate detection
+  </Step>
+  
+  <Step title="Write Path Hydration">
+    **WritePathHydration.hydrateInsertTweet** hydrates the Tweet before storage to ensure all required fields are populated.
+  </Step>
+  
+  <Step title="Store Updates">
+    Tweet data is written to various stores as described in **InsertTweet.scala**:
+    - Manhattan (primary storage)
+    - Timeline Service (for timeline fanout)
+    - Search Index (for tweet search)
+    - Other downstream services
+  </Step>
+</Steps>
+
+### Relevant Packages
+
+#### Stores
+Define logic for updating backends on write:
+
+```scala
+// ManhattanTweetStore writes Tweets to Manhattan
+object ManhattanTweetStore extends Store {
+  def insertTweet(tweet: Tweet): Future[Unit] = {
+    manhattanClient.insert(
+      key = tweet.id,
+      value = serialize(tweet)
+    )
+  }
+}
+```
+
+<Note>
+Stores are located at: `tweetypie/server/src/main/scala/com/twitter/tweetypie/store/`
+</Note>
+
+#### Store Modules
+Define logic for handling write endpoints and coordinate which stores to call:
+
+```scala
+// InsertTweet handles post_tweet endpoint
+object InsertTweet extends StoreModule {
+  // Defines which stores are called for insert operations
+  val stores = Seq(
+    ManhattanTweetStore,
+    TimelineStore,
+    SearchIndexStore,
+    // ... other stores
+  )
+}
+```
+
+<Note>
+Store modules are located at: `tweetypie/server/src/main/scala/com/twitter/tweetypie/store/InsertTweet.scala:84`
+</Note>
+
+### Through the Write Path
+
+Detailed flow of a `post_tweet` request:
+
+1. **PostTweet.scala** handles the request (line 338)
+2. **TweetBuilder** creates Tweet:
+   - Validates text and media
+   - Shortens URLs via Talon
+   - Processes media uploads
+   - Checks for duplicates
+3. **WritePathHydration.hydrateInsertTweet** enriches Tweet (WritePathHydration.scala:54)
+4. **InsertTweet** module writes to stores (InsertTweet.scala:84):
+   - Manhattan (primary storage)
+   - Cache (Twemcache)
+   - Timeline Service
+   - Search Index
+   - TFlock (for fanout)
+   - EventBus (for streaming)
+
+## Key Operations
+
+### Creating Tweets
+
+```scala
+// Post a new tweet
+val postTweetRequest = PostTweetRequest(
+  userId = userId,
+  text = "Hello, world!",
+  mediaUploadIds = Seq(mediaId),
+  placeId = Some(placeId)
+)
+
+val tweet = tweetypie.postTweet(postTweetRequest)
+```
+
+### Reading Tweets
+
+```scala
+// Fetch tweets with hydration options
+val getTweetsRequest = GetTweetsRequest(
+  tweetIds = Seq(tweetId1, tweetId2),
+  options = GetTweetsOptions(
+    includeCards = true,
+    includeMedia = true,
+    includeUser = true,
+    safetyLevel = SafetyLevel.Recommendations
+  )
+)
+
+val tweets = tweetypie.getTweets(getTweetsRequest)
+```
+
+### Deleting Tweets
+
+```scala
+// Delete a tweet
+val deleteTweetRequest = DeleteTweetRequest(
+  tweetId = tweetId,
+  userId = userId,
+  auditNote = Some("User requested deletion")
+)
+
+tweetypie.deleteTweet(deleteTweetRequest)
+```
+
+### Editing Tweets
+
+```scala
+// Edit an existing tweet
+val editTweetRequest = EditTweetRequest(
+  tweetId = tweetId,
+  userId = userId,
+  newText = "Updated tweet text"
+)
+
+val editedTweet = tweetypie.editTweet(editTweetRequest)
+```
+
+## Data Storage
+
+### Manhattan
+Twitter's distributed key-value store:
+- **Primary storage** for Tweet data
+- Highly available and scalable
+- Optimized for low-latency reads
+
+### Twemcache
+Twitter's distributed caching layer:
+- **Caching** frequently accessed Tweets
+- Reduces load on Manhattan
+- Maintains consistency with write-through pattern
+
+## Hydration Details
+
+Tweetypie hydrates various Tweet components:
+
+<CardGroup cols={2}>
+  <Card title="URLs" icon="link">
+    Expand t.co shortened URLs via Talon
+  </Card>
+  <Card title="Media" icon="image">
+    Fetch media metadata and thumbnails
+  </Card>
+  <Card title="Mentions" icon="at">
+    Hydrate user mentions with profile data
+  </Card>
+  <Card title="Cards" icon="window-maximize">
+    Fetch Twitter Card metadata
+  </Card>
+  <Card title="Places" icon="location-dot">
+    Hydrate location/place information
+  </Card>
+  <Card title="Quotes" icon="quote-left">
+    Fetch quoted Tweet data
+  </Card>
+</CardGroup>
+
+### Hydration Pipeline
+
+```scala
+// Simplified hydration pipeline
+val hydrationPipeline = Seq(
+  UrlEntityHydrator,
+  MediaEntityHydrator,
+  MentionEntityHydrator,
+  CardHydrator,
+  QuotedTweetHydrator,
+  ConversationControlHydrator,
+  // ... many more hydrators
+)
+
+val hydratedTweet = hydrationPipeline.foldLeft(rawTweet) { (tweet, hydrator) =>
+  hydrator.hydrate(tweet)
+}
+```
+
+*Source: tweetypie/server/src/main/scala/com/twitter/tweetypie/hydrator/TweetHydration.scala*
+
+## Safety and Visibility
+
+Tweetypie enforces various safety and visibility rules:
+
+### Visibility Filtering
+- Blocked/muted users
+- Protected accounts
+- NSFW content filtering
+- Age-gated content
+- Country-specific takedowns
+
+### Safety Levels
+Different safety levels for different contexts:
+- `TimelineHome` - Strictest filtering for Home timeline
+- `Recommendations` - Balanced for recommendation surfaces
+- `Search` - Search-appropriate filtering
+- `Minimal` - Minimal filtering for moderation tools
+
+## Performance Optimization
+
+### Caching Strategy
+```scala
+// Multi-layer caching
+val tweet = cache.get(tweetId) match {
+  case Some(cached) => cached
+  case None => 
+    val fresh = manhattan.get(tweetId)
+    cache.set(tweetId, fresh)
+    fresh
+}
+```
+
+### Batch Operations
+```scala
+// Batch get tweets for efficiency
+val tweets = tweetypie.getTweets(
+  tweetIds = (1 to 100).map(_.toLong),
+  options = GetTweetsOptions(...)
+)
+```
+
+### Async Hydration
+Some hydrators run asynchronously to reduce latency:
+- Non-critical data fetched in background
+- Progressive hydration for incremental responses
+- Parallel hydration where possible
+
+<Warning>
+Tweetypie is in the critical path for most Twitter operations. p99 latency must stay below 100ms for read operations.
+</Warning>
+
+## Monitoring
+
+### Key Metrics
+- **Request Rate**: Requests per second by endpoint
+- **Latency**: p50, p99, p999 for reads and writes
+- **Success Rate**: Non-error responses
+- **Cache Hit Rate**: Twemcache effectiveness
+- **Hydration Success**: Per-hydrator success rates
+
+### Alerts
+- High latency (p99 > 200ms)
+- Low success rate (< 99.9%)
+- Cache performance degradation
+- Backend service failures
+- Data consistency issues
+
+## Related Services
+
+- [Home Mixer](/services/home-mixer) - Primary consumer for timeline tweets
+- [Timeline Ranker](/services/timelineranker) - Uses Tweetypie for tweet hydration
+- [Pushservice](/services/pushservice) - Fetches tweet data for notifications
+- [CR Mixer](/services/cr-mixer) - Uses tweet data for candidate generation

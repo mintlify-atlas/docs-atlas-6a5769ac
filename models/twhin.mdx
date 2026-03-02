@@ -1,0 +1,126 @@
+---
+title: "TwHIN"
+description: "Dense knowledge graph embeddings for users and tweets"
+---
+
+## Overview
+
+TwHIN (Twitter Heterogeneous Information Network) creates dense knowledge graph embeddings for users and tweets. Unlike SimClusters which produces sparse community-based embeddings, TwHIN generates dense vector representations by learning from the heterogeneous interaction graph on X.
+
+<Info>
+For detailed information about TwHIN, see the [TwHIN project documentation](https://github.com/twitter/the-algorithm-ml/blob/main/projects/twhin/README.md) in the algorithm-ml repository.
+</Info>
+
+## How It Works
+
+### Heterogeneous Graph Learning
+
+TwHIN models X as a heterogeneous information network containing:
+- **Users**: Account entities
+- **Tweets**: Post content
+- **Interactions**: Follows, favorites, retweets, replies, and other engagement types
+
+The model learns dense embeddings by capturing the structure and relationships within this heterogeneous graph.
+
+### Dense Embeddings
+
+Unlike SimClusters' sparse community vectors, TwHIN produces dense embeddings:
+
+<CodeGroup>
+```text SimClusters (Sparse)
+User A: [0, 0, 0.8, 0, 0.2, 0, 0, ...] (145K dims, mostly zeros)
+```
+
+```text TwHIN (Dense)
+User A: [0.23, -0.41, 0.18, 0.67, -0.12, ...] (fixed dims, all non-zero)
+```
+</CodeGroup>
+
+<Note>
+Dense embeddings can capture more nuanced relationships but require more computation and storage compared to sparse embeddings.
+</Note>
+
+## Key Characteristics
+
+<AccordionGroup>
+  <Accordion title="Dense Representations">
+    All dimensions have non-zero values, capturing rich latent features from the graph structure.
+  </Accordion>
+  
+  <Accordion title="Heterogeneous Learning">
+    Learns from multiple entity types (users, tweets) and relationship types (follows, favorites, etc.) simultaneously.
+  </Accordion>
+  
+  <Accordion title="Knowledge Graph Approach">
+    Treats X as a knowledge graph where embeddings preserve structural and semantic relationships.
+  </Accordion>
+  
+  <Accordion title="Complementary to SimClusters">
+    Works alongside SimClusters to provide both sparse interpretable and dense expressive representations.
+  </Accordion>
+</AccordionGroup>
+
+## Where It's Used
+
+TwHIN embeddings are used across X's recommendation systems:
+
+<CardGroup cols={2}>
+  <Card title="Tweet Recommendations" icon="message">
+    Powers candidate generation and ranking in For You timeline
+  </Card>
+  <Card title="User Recommendations" icon="user">
+    Suggests accounts to follow based on embedding similarity
+  </Card>
+  <Card title="Content Understanding" icon="brain">
+    Represents semantic meaning of tweets and user interests
+  </Card>
+  <Card title="Similar Content Discovery" icon="magnifying-glass">
+    Finds related tweets and accounts using dense vector similarity
+  </Card>
+</CardGroup>
+
+## Architecture Integration
+
+### Representation Manager
+
+TwHIN embeddings are served via the [Representation Manager](/representation-manager) service, which:
+- Stores pre-computed embeddings
+- Provides fast retrieval APIs
+- Handles both SimClusters and TwHIN embeddings
+
+### Representation Scorer
+
+The [Representation Scorer](/representation-scorer) uses TwHIN embeddings to:
+- Compute similarity scores between entities
+- Rank candidates based on embedding distance
+- Combine with other signals for final recommendations
+
+## Comparison with SimClusters
+
+| Aspect | SimClusters | TwHIN |
+|--------|-------------|-------|
+| **Vector Type** | Sparse (145K dims, ~5-10 non-zero) | Dense (all dims non-zero) |
+| **Interpretability** | High (community-based) | Lower (latent features) |
+| **Computation** | Fast (sparse operations) | Slower (dense operations) |
+| **Expressiveness** | Good for community patterns | Better for nuanced relationships |
+| **Use Case** | Community-based recommendations | Semantic similarity matching |
+
+<Tip>
+X uses **both** SimClusters and TwHIN embeddings in the recommendation pipeline, leveraging the strengths of each approach.
+</Tip>
+
+## Training and Updates
+
+For information about:
+- Model architecture
+- Training procedures
+- Update frequency
+- Performance characteristics
+
+Refer to the [TwHIN project README](https://github.com/twitter/the-algorithm-ml/blob/main/projects/twhin/README.md) in the algorithm-ml repository.
+
+## Related Components
+
+- [SimClusters](/models/simclusters) - Sparse community-based embeddings
+- **Representation Manager** - Embedding storage and retrieval service (`representation-manager/`)
+- **Representation Scorer** - Similarity scoring using embeddings (`representation-scorer/`)

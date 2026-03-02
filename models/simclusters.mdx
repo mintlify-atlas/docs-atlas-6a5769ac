@@ -1,0 +1,138 @@
+---
+title: "SimClusters"
+description: "Community-based embeddings for users, tweets, and content recommendation"
+---
+
+## Overview
+
+SimClusters is a general-purpose representation layer that uses overlapping communities to create sparse, interpretable vectors for users and heterogeneous content. It powers personalized tweet recommendations across X's recommendation surfaces.
+
+<Info>
+Published in KDD 2020 Applied Data Science Track: [SimClusters: Community-Based Representations for Heterogeneous Recommendations at Twitter](https://www.kdd.org/kdd2020/accepted-papers/view/simclusters-community-based-representations-for-heterogeneous-recommendatio)
+</Info>
+
+## How It Works
+
+### 1. Follow Graph as Bipartite Graph
+
+SimClusters represents Twitter's follow relationships as a bipartite graph with two node sets:
+- **Producers**: Users who are followed (~20M top followed users)
+- **Consumers**: Users who follow others
+
+This bipartite graph can be represented as an **m × n** matrix where consumers are **u** and producers are **v**.
+
+### 2. Community Detection (Known For)
+
+The algorithm identifies communities of producers with similar followers:
+
+1. **Producer-Producer Similarity**: Computed using cosine similarity between users who follow each producer
+2. **Graph Construction**: Similarity scores create a weighted producer-producer graph
+3. **Noise Removal**: Edges below a threshold are deleted
+4. **Community Detection**: Metropolis-Hastings sampling identifies **k** communities
+
+<Note>
+In production, SimClusters discovers approximately **145,000 communities** from the top **20 million** producers.
+</Note>
+
+The result is an **n × k** "Known For" matrix (**V**) where each producer is affiliated with at most one community (maximally sparse).
+
+### 3. Consumer Embeddings (InterestedIn)
+
+The InterestedIn matrix (**U**) represents user interests:
+
+```
+U = A × V
+```
+
+Where:
+- **A** = Follow graph matrix
+- **V** = Known For matrix
+
+InterestedIn embeddings capture users' long-term interests and are a major source for consumer-based tweet recommendations.
+
+### 4. Producer Embeddings
+
+Since Known For restricts each producer to a single community, producer embeddings (**Ṽ**) provide richer representation:
+
+- Calculated as cosine similarity between each producer's follow graph and the InterestedIn vector for each community
+- Captures that users tweet about multiple topics and are "known" in multiple communities
+- Used for producer-based recommendations (e.g., suggesting tweets from accounts you just followed)
+
+### 5. Entity Embeddings
+
+#### Tweet Embeddings
+
+- **Initialization**: Empty vector when tweet is created
+- **Updates**: Each time a tweet is favorited, the InterestedIn vector of the user who favorited it is added
+- **Dynamic**: Changes over time as engagement occurs
+- **Usage**: Calculate tweet similarity and recommend similar tweets based on engagement history
+
+<Tip>
+A real-time Heron job updates tweet embeddings as favorites occur. See [summingbird/README.md](src/scala/com/twitter/simclusters_v2/summingbird/README.md) for details.
+</Tip>
+
+#### Topic Embeddings
+
+Topic embeddings (**R**) are determined by:
+- Cosine similarity between consumers interested in a community
+- Aggregated favorites on tweets with topic annotations
+- Time decay applied
+- Used for topic-related recommendations like TopicFollow
+
+## Architecture
+
+### Offline Jobs (Scalding)
+
+| Job | Code Location | Description |
+|-----|---------------|-------------|
+| **KnownFor** | `simclusters_v2/scalding/update_known_for/UpdateKnownFor20M145K2020.scala` | Outputs KnownFor dataset storing clusterId ↔ producerUserId relationships for top 20M producers |
+| **InterestedIn Embeddings** | `simclusters_v2/scalding/InterestedInFromKnownFor.scala` | Computes users' InterestedIn embeddings from KnownFor dataset |
+| **Producer Embeddings** | `simclusters_v2/scalding/embedding/ProducerEmbeddingsFromInterestedIn.scala` | Computes producer embeddings representing content users produce |
+| **Semantic Core Entity Embeddings** | `simclusters_v2/scalding/embedding/EntityToSimClustersEmbeddingsJob.scala` | Computes semantic core entity embeddings (entityId ↔ clusterId mappings) |
+| **Topic Embeddings** | `simclusters_v2/scalding/embedding/tfg/FavTfgBasedTopicEmbeddings.scala` | Generates fav-based Topic-Follow-Graph embeddings |
+
+### GCP Jobs (BigQuery)
+
+GCP pipeline for building SimClusters ANN indices via BigQuery, enabling faster iterations:
+
+| Job | Code Location | Description |
+|-----|---------------|-------------|
+| **PushOpenBased Index** | `scio/bq_generation/simclusters_index_generation/EngagementEventBasedClusterToTweetIndexGenerationJob.scala` | Builds clusterId → TopTweet index based on user-open engagement for notifications |
+| **VideoViewBased Index** | `scio/bq_generation/simclusters_index_generation/EngagementEventBasedClusterToTweetIndexGenerationJob.scala` | Builds clusterId → TopTweet index based on video view history for Home video recommendations |
+
+### Real-Time Streaming Jobs
+
+| Job | Code Location | Description |
+|-----|---------------|-------------|
+| **Tweet Embedding Job** | `simclusters_v2/summingbird/storm/TweetJob.scala` | Generates real-time tweet embeddings and SimClusters index |
+| **Persistent Tweet Embedding Job** | `simclusters_v2/summingbird/storm/PersistentTweetJob.scala` | Persists tweet embeddings from MemCache to Manhattan |
+
+## Where It's Used
+
+<CardGroup cols={2}>
+  <Card title="For You Timeline" icon="house">
+    Powers candidate generation and ranking for personalized tweet recommendations
+  </Card>
+  <Card title="Notifications" icon="bell">
+    Generates tweet candidates for push notifications via SimClusters ANN
+  </Card>
+  <Card title="Video Recommendations" icon="video">
+    Recommends videos on Home timeline using video view-based indices
+  </Card>
+  <Card title="Similar Content" icon="clone">
+    Finds similar tweets and accounts based on embedding similarity
+  </Card>
+</CardGroup>
+
+## Key Benefits
+
+- **Sparse & Interpretable**: Community-based vectors are easy to understand and compute
+- **Multi-Modal**: Supports users, tweets, topics, and other entities in the same space
+- **Real-Time**: Tweet embeddings update as engagement occurs
+- **Scalable**: Handles 20M producers and 145K communities in production
+
+## Related Components
+
+- **Representation Manager** - Service to retrieve SimClusters embeddings (`representation-manager/`)
+- **Representation Scorer** - Computes similarity scores using embeddings (`representation-scorer/`)
+- **SimClusters ANN** - Fast approximate nearest neighbor search for recommendations (`simclusters-ann/`)

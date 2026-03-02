@@ -1,0 +1,278 @@
+---
+title: Data Record Formats
+description: DataRecord format used for machine learning features, labels, and predictions in the X Recommendation Algorithm
+---
+
+## Overview
+
+DataRecord is Twitter's standard machine learning data format used to represent feature data, labels, and predictions during both model training and serving. It provides a flexible, efficient representation of sparse and dense features commonly used in recommendation systems.
+
+DataRecords are used throughout the recommendation pipeline:
+- **Feature Hydration** - Storing features fetched from various sources
+- **Model Input** - Passing features to ML prediction services
+- **Model Output** - Returning predictions and scores
+- **Training Data** - Serializing examples for offline model training
+
+## Architecture
+
+The DataRecord format is implemented in the `twml` (Twitter Machine Learning) library and supports:
+
+- **Sparse Features** - Efficient representation of high-dimensional sparse data
+- **Dense Features** - Continuous numerical features
+- **Binary Features** - Boolean indicators
+- **Discrete Features** - Categorical values
+- **String Features** - Text and string data
+- **Sparse Binary Features** - Set-valued binary features
+- **Sparse Continuous Features** - Sparse floating-point features
+
+## DataRecord Structure
+
+### Feature Types
+
+DataRecord supports multiple feature field types optimized for different data patterns:
+
+<ParamField path="binaryFeatures" type="set<int64>">
+  Set of binary feature IDs that are present (value = 1). Efficient for sparse binary indicators.
+  
+  Example: User has verified badge, user is following author
+</ParamField>
+
+<ParamField path="continuousFeatures" type="map<int64, double>">
+  Map from feature ID to continuous floating-point value. Used for numerical features.
+  
+  Example: User's follower count, tweet engagement rate, predicted CTR
+</ParamField>
+
+<ParamField path="discreteFeatures" type="map<int64, int64>">
+  Map from feature ID to discrete/categorical value. Used for enumerated features.
+  
+  Example: User's country ID, tweet language ID, time of day bucket
+</ParamField>
+
+<ParamField path="stringFeatures" type="map<int64, string>">
+  Map from feature ID to string value. Used for text and identifiers.
+  
+  Example: Tweet text, user bio, hashtags
+</ParamField>
+
+<ParamField path="sparseBinaryFeatures" type="map<int64, set<string>>">
+  Map from feature ID to set of string keys. Used for multi-valued categorical features.
+  
+  Example: Set of topics user is interested in, set of hashtags in tweet
+</ParamField>
+
+<ParamField path="sparseContinuousFeatures" type="map<int64, map<string, double>>">
+  Map from feature ID to map of string keys to continuous values. Used for sparse weighted features.
+  
+  Example: Topic affinity scores (topic_id -> score), author engagement rates by type
+</ParamField>
+
+### Feature IDs
+
+Features are identified by 64-bit integer IDs. Feature IDs are typically:
+
+- Defined in feature configuration files
+- Hashed from feature names for dynamic features
+- Organized into ranges by feature group
+- Mapped to human-readable names in feature metadata
+
+## Usage in Follow Recommendations Service
+
+As described in the FRS README, the ranking pipeline uses DataRecords extensively:
+
+### Feature Hydration
+
+1. For each candidate account, FRS fetches features from multiple sources:
+   - User features (follower count, account age, verification status)
+   - Candidate features (popularity metrics, content quality signals)
+   - Relationship features (mutual follows, interaction history)
+   - Context features (time of day, user location, device type)
+
+2. Features are aggregated into a DataRecord for each `(user, candidate)` pair
+
+### ML Ranking
+
+1. **DataRecord Construction** - Build a DataRecord containing:
+   ```python
+   # Example structure (pseudocode)
+   data_record = DataRecord()
+   data_record.continuous_features[USER_FOLLOWER_COUNT] = user.follower_count
+   data_record.continuous_features[CANDIDATE_FOLLOWER_COUNT] = candidate.follower_count
+   data_record.binary_features.add(USER_IS_VERIFIED)
+   data_record.discrete_features[USER_COUNTRY] = user.country_id
+   data_record.sparse_continuous_features[MUTUAL_FOLLOWS] = {
+     "mutual_follow_count": 5.0,
+     "mutual_follow_ratio": 0.023
+   }
+   ```
+
+2. **Prediction** - Send DataRecord to ML prediction service:
+   - Service loads the trained model
+   - Model reads features from DataRecord
+   - Model computes prediction scores
+   - Scores are written back to output DataRecord
+
+3. **Scoring** - Extract predictions from response DataRecord:
+   - `p(follow|recommendation)` - Probability user will follow the candidate
+   - `p(positive_engagement|follow)` - Probability of engagement given follow
+   - Final score is weighted combination of these probabilities
+
+## Python API
+
+The DataRecord Python API is defined in `twml/twml/readers/data_record.py`:
+
+```python
+from twml.readers import DataRecord
+
+# Create a new DataRecord
+record = DataRecord()
+
+# Add features
+record.add_continuous_feature(feature_id=1001, value=3.14)
+record.add_binary_feature(feature_id=2001)
+record.add_discrete_feature(feature_id=3001, value=42)
+record.add_string_feature(feature_id=4001, value="example")
+
+# Serialize to bytes
+bytes_data = record.serialize()
+
+# Deserialize from bytes
+record2 = DataRecord.deserialize(bytes_data)
+
+# Access features
+value = record2.get_continuous_feature(1001)  # Returns 3.14
+has_feature = record2.has_binary_feature(2001)  # Returns True
+```
+
+## Scala API
+
+DataRecord is also used in Scala services via the `ml.api` package:
+
+```scala
+import com.twitter.ml.api.DataRecord
+import com.twitter.ml.api.util.SRichDataRecord
+
+// Create DataRecord
+val dr = new DataRecord()
+
+// Add features using SRichDataRecord wrapper
+val richDr = SRichDataRecord(dr)
+richDr.setFeatureValue(USER_FOLLOWER_COUNT, 1000.0)
+richDr.setFeatureValue(USER_IS_VERIFIED, true)
+
+// Read features
+val followerCount = richDr.getFeatureValue(USER_FOLLOWER_COUNT)
+```
+
+## Feature Engineering
+
+Common patterns for DataRecord features:
+
+### Normalization
+
+```python
+# Log transformation for skewed distributions
+import math
+raw_value = user.follower_count
+normalized = math.log1p(raw_value)  # log(1 + x)
+record.add_continuous_feature(LOG_FOLLOWER_COUNT, normalized)
+```
+
+### Ratios and Derived Features
+
+```python
+# Engagement rate
+if candidate.tweet_count > 0:
+  engagement_rate = candidate.total_likes / candidate.tweet_count
+  record.add_continuous_feature(ENGAGEMENT_RATE, engagement_rate)
+```
+
+### Crossed Features
+
+```python
+# User-candidate interaction features
+key = f"user_{user.id}_candidate_{candidate.id}"
+record.add_sparse_continuous_feature(
+  INTERACTION_HISTORY,
+  {key: recent_interaction_score}
+)
+```
+
+### Temporal Features
+
+```python
+# Time-based features
+record.add_discrete_feature(HOUR_OF_DAY, current_hour)
+record.add_discrete_feature(DAY_OF_WEEK, current_day)
+record.add_binary_feature(IS_WEEKEND)
+```
+
+## Serialization
+
+DataRecords are serialized for:
+
+- **RPC Communication** - Sending features to prediction services
+- **Training Data** - Writing examples to training datasets
+- **Caching** - Storing computed features
+
+Serialization formats:
+- **Protocol Buffers** - Efficient binary format
+- **Thrift** - Compatible with Thrift services
+- **Avro** - For Hadoop/big data pipelines
+
+## Performance Considerations
+
+### Sparse vs Dense
+
+Choose appropriate feature types based on sparsity:
+
+- Use `binaryFeatures` set for sparse binary indicators (saves space vs. map)
+- Use `sparseContinuousFeatures` when most values are zero
+- Use regular `continuousFeatures` for dense features that are usually present
+
+### Feature Limits
+
+Recommendation services may have limits on:
+- Total number of features per DataRecord
+- Maximum feature vector size
+- Serialized DataRecord size
+
+FRS handles ~6000 features per candidate in Home Mixer ranking.
+
+### Batching
+
+Prediction services often batch DataRecords:
+- Reduces RPC overhead
+- Enables GPU batch processing
+- Amortizes model loading costs
+
+## Training vs Serving
+
+### Training Data
+
+DataRecords for training include:
+- All features used during serving
+- Additional features for analysis
+- Labels (e.g., did user follow? did user engage?)
+- Weights for importance sampling
+
+### Serving Data
+
+DataRecords for serving:
+- Only features available at inference time
+- No labels (model produces predictions)
+- Optimized for low latency
+- May use cached feature values
+
+## Related Documentation
+
+- [Follow Recommendations Service API](/api/frs-api) - Uses DataRecords for ranking
+- [Thrift Definitions](/api/thrift-definitions) - Service API types
+- [CR Mixer API](/api/cr-mixer-api) - Candidate generation
+
+## Source Code References
+
+DataRecord implementation files:
+- `twml/twml/readers/data_record.py` - Python DataRecord reader
+- `follow-recommendations-service/common/src/main/scala/com/twitter/follow_recommendations/common/feature_hydration/` - Feature hydration adapters
+- FRS README - `follow-recommendations-service/README.md:26` - DataRecord usage description

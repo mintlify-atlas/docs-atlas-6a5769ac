@@ -1,0 +1,264 @@
+---
+title: CR Mixer API
+description: API reference for CR Mixer (Candidate Recommendation Mixer), Twitter's candidate generation service
+---
+
+## Overview
+
+CR-Mixer is a candidate generation service that speeds up iteration and development of candidate generation and light ranking. It acts as a lightweight coordinating layer that delegates candidate generation tasks to underlying compute services.
+
+The service provides:
+- Centralized platform for fetching and mixing candidate sources
+- Light ranking layer for candidates
+- Common filtering and deduplication
+- Feature switch management and version control
+- Performance optimization and caching
+
+## Service Definition
+
+CR Mixer is defined in `cr-mixer/thrift/src/main/thrift/cr_mixer.thrift`
+
+```thrift
+service CrMixer {
+  CrMixerTweetResponse getTweetRecommendations(1: CrMixerTweetRequest request)
+  RelatedTweetResponse getRelatedTweetsForQueryTweet(1: RelatedTweetRequest request)
+  RelatedTweetResponse getRelatedTweetsForQueryAuthor(1: RelatedTweetRequest request)
+  UtegTweetResponse getUtegTweetRecommendations(1: UtegTweetRequest request)
+  FrsTweetResponse getFrsBasedTweetRecommendations(1: FrsTweetRequest request)
+  RelatedVideoTweetResponse getRelatedVideoTweetsForQueryTweet(1: RelatedVideoTweetRequest request)
+  AdsResponse getAdsRecommendations(1: AdsRequest request)
+  TopicTweetResponse getTopicTweetRecommendations(1: TopicTweetRequest request)
+}
+```
+
+## getTweetRecommendations
+
+Returns personalized tweet recommendations for a user.
+
+### Request
+
+<ParamField path="clientContext" type="ClientContext" required>
+  Client context containing user identification and device information
+  
+  <ParamField path="userId" type="int64">
+    User ID requesting recommendations (optional for logged-out users)
+  </ParamField>
+  
+  <ParamField path="guestId" type="int64">
+    Guest ID for logged-out users
+  </ParamField>
+  
+  <ParamField path="appId" type="int64">
+    Application identifier
+  </ParamField>
+  
+  <ParamField path="countryCode" type="string">
+    User's country code
+  </ParamField>
+  
+  <ParamField path="languageCode" type="string">
+    User's language preference
+  </ParamField>
+</ParamField>
+
+<ParamField path="product" type="Product" required>
+  Product surface requesting recommendations. Enum values:
+  - `Home` (1) - Home timeline
+  - `Notifications` (2) - Notification recommendations
+  - `Email` (3) - Email recommendations
+  - `MoreTweetsModule` (4) - Related tweets module
+  - `ImmersiveMediaViewer` (5) - Media viewer
+  - `VideoCarousel` (6) - Video recommendations
+  - `ExploreTopics` (7) - Topic exploration
+  - `Ads` (8) - Ads recommendations
+  - `HomeRealTime` (9) - Real-time home tab
+  - `TopicLandingPage` (10) - Topic pages
+</ParamField>
+
+<ParamField path="productContext" type="ProductContext">
+  Product-specific parameters and configuration options
+</ParamField>
+
+<ParamField path="excludedTweetIds" type="list<int64>">
+  Tweet IDs to exclude from recommendations (already seen or dismissed tweets)
+</ParamField>
+
+### Response
+
+<ResponseField name="tweets" type="list<TweetRecommendation>">
+  List of recommended tweets with scores and metadata
+  
+  <ResponseField name="tweetId" type="int64" required>
+    Unique identifier for the recommended tweet
+  </ResponseField>
+  
+  <ResponseField name="score" type="double" required>
+    Recommendation score (higher is better)
+  </ResponseField>
+  
+  <ResponseField name="metricTags" type="list<MetricTag>">
+    Tags for tracking and attribution
+  </ResponseField>
+  
+  <ResponseField name="authorId" type="int64">
+    User ID of the tweet author
+  </ResponseField>
+  
+  <ResponseField name="candidateGenerationKey" type="CandidateGenerationKey">
+    Information about how the candidate was generated (source algorithm, similarity engine)
+  </ResponseField>
+  
+  <ResponseField name="latestSourceSignalTimestampInMillis" type="int64">
+    Timestamp of the most recent engagement signal used (null if not from engagement signals)
+  </ResponseField>
+</ResponseField>
+
+### Exceptions
+
+<ResponseField name="validationErrors" type="ValidationExceptionList">
+  Validation errors with details reported to clients
+</ResponseField>
+
+<ResponseField name="serverError" type="ServerError">
+  Server errors (details not reported to clients)
+</ResponseField>
+
+## getRelatedTweetsForQueryTweet
+
+Returns tweets related to a specific query tweet.
+
+### Request
+
+<ParamField path="internalId" type="InternalId" required>
+  Internal identifier (tweet ID or user ID) to find related content for
+</ParamField>
+
+<ParamField path="product" type="Product" required>
+  Product surface making the request
+</ParamField>
+
+<ParamField path="clientContext" type="ClientContext" required>
+  Client context (userId may be None for logged-out users)
+</ParamField>
+
+<ParamField path="excludedTweetIds" type="list<int64>">
+  Tweet IDs to exclude from results
+</ParamField>
+
+### Response
+
+<ResponseField name="tweets" type="list<RelatedTweet>">
+  List of related tweets
+  
+  <ResponseField name="tweetId" type="int64" required>
+    Tweet identifier
+  </ResponseField>
+  
+  <ResponseField name="score" type="double">
+    Similarity/relevance score
+  </ResponseField>
+  
+  <ResponseField name="authorId" type="int64">
+    Tweet author's user ID
+  </ResponseField>
+</ResponseField>
+
+## getRelatedTweetsForQueryAuthor
+
+Returns tweets related to a specific author's content. Uses the same request/response structure as `getRelatedTweetsForQueryTweet`.
+
+## getUtegTweetRecommendations
+
+Returns tweet recommendations based on User Tweet Entity Graph (UTEG) engagement signals.
+
+### Request
+
+<ParamField path="clientContext" type="ClientContext" required>
+  Client context
+</ParamField>
+
+<ParamField path="product" type="Product" required>
+  Product surface
+</ParamField>
+
+<ParamField path="productContext" type="ProductContext">
+  Product-specific parameters
+</ParamField>
+
+<ParamField path="excludedTweetIds" type="list<int64>">
+  Tweets to exclude
+</ParamField>
+
+### Response
+
+<ResponseField name="tweets" type="list<UtegTweet>">
+  UTEG-based tweet recommendations
+  
+  <ResponseField name="tweetId" type="int64" required>
+    Tweet identifier
+  </ResponseField>
+  
+  <ResponseField name="score" type="double" required>
+    Sum of weights of seed users who engaged with the tweet. If a user engaged multiple times (e.g., liked and retweeted), their weight is counted for each engagement.
+  </ResponseField>
+  
+  <ResponseField name="socialProofByType" type="map<SocialProofType, list<int64>>" required>
+    User social proofs grouped by engagement type (likes, retweets, replies, etc.)
+  </ResponseField>
+</ResponseField>
+
+## getTopicTweetRecommendations
+
+Returns tweet recommendations for specific topics.
+
+### Request
+
+<ParamField path="clientContext" type="ClientContext" required>
+  Client context
+</ParamField>
+
+<ParamField path="product" type="Product" required>
+  Product surface
+</ParamField>
+
+<ParamField path="topicIds" type="list<int64>" required>
+  List of topic IDs to get recommendations for
+</ParamField>
+
+<ParamField path="productContext" type="ProductContext">
+  Product-specific parameters
+</ParamField>
+
+<ParamField path="excludedTweetIds" type="list<int64>">
+  Tweets to exclude
+</ParamField>
+
+### Response
+
+<ResponseField name="tweets" type="map<int64, list<TopicTweet>>" required>
+  Map from topic ID to list of recommended tweets for that topic
+  
+  <ResponseField name="tweetId" type="int64" required>
+    Tweet identifier
+  </ResponseField>
+  
+  <ResponseField name="score" type="double" required>
+    Recommendation score
+  </ResponseField>
+  
+  <ResponseField name="similarityEngineType" type="SimilarityEngineType" required>
+    Algorithm used to generate this recommendation (e.g., SimClustersANN, TwHINANN, etc.)
+  </ResponseField>
+</ResponseField>
+
+## getFrsBasedTweetRecommendations
+
+Returns tweet recommendations based on Follow Recommendations Service (FRS) suggestions - tweets from accounts the user may be interested in following.
+
+See [Thrift Definitions](/api/thrift-definitions) for complete type definitions.
+
+## Related APIs
+
+- [Home Mixer API](/api/home-mixer-api) - Main consumer of CR Mixer
+- [Follow Recommendations Service](/api/frs-api) - Account recommendations
+- [Thrift Definitions](/api/thrift-definitions) - Complete API type definitions

@@ -1,0 +1,190 @@
+---
+title: "Graph Feature Service"
+description: "Distributed system for computing graph-based features between user pairs"
+---
+
+## Overview
+
+Graph Feature Service (GFS) is a distributed system that provides various graph-based features for pairs of users. It answers questions about relationships and interactions between a source user and candidate user to power personalized recommendations.
+
+## What It Does
+
+Given a source user **A** and candidate user **C**, GFS can answer:
+
+<CardGroup cols={2}>
+  <Card title="Follow Graph Features" icon="users">
+    How many of A's followings are following C?
+  </Card>
+  <Card title="Engagement Features" icon="heart">
+    How many of A's followings have favorited C's tweets?
+  </Card>
+  <Card title="Similarity Features" icon="code-compare">
+    How similar is C to users that A has favorited?
+  </Card>
+  <Card title="Interaction Features" icon="arrows-left-right">
+    What is the interaction history between A and C?
+  </Card>
+</CardGroup>
+
+## How It Works
+
+### Feature Computation
+
+GFS computes features by analyzing the graph structure and interaction patterns:
+
+```
+Source User A → Candidate User C
+
+Features:
+- mutual_follows: users who follow both A and C
+- follower_favorited: A's followers who favorited C's tweets
+- following_following: A's followings who follow C
+- similarity_score: embedding similarity between A and C
+- interaction_count: direct interactions between A and C
+```
+
+### Distributed Architecture
+
+GFS is built as a distributed system to handle high query volumes:
+
+<Steps>
+  <Step title="Query Reception">
+    Receives requests for (source_user, candidate_user) pairs
+  </Step>
+  <Step title="Graph Traversal">
+    Traverses follow and interaction graphs to compute features
+  </Step>
+  <Step title="Feature Aggregation">
+    Aggregates counts, scores, and metrics across graph edges
+  </Step>
+  <Step title="Response">
+    Returns computed features for downstream ranking models
+  </Step>
+</Steps>
+
+## Example Features
+
+<Tabs>
+  <Tab title="Follow Graph">
+    **Mutual Follows**
+    ```
+    Count of users who follow both A and C
+    ```
+    
+    **Following Overlap**
+    ```
+    |A.following ∩ C.following| / |A.following|
+    ```
+    
+    **Follower Overlap**
+    ```
+    |A.followers ∩ C.followers| / |A.followers|
+    ```
+  </Tab>
+  
+  <Tab title="Engagement Graph">
+    **Follower Engagement**
+    ```
+    Count of A's followers who have favorited C's tweets
+    ```
+    
+    **Following Engagement**
+    ```
+    Count of A's followings who have favorited C's tweets
+    ```
+    
+    **Retweet Graph**
+    ```
+    Count of A's followings who have retweeted C
+    ```
+  </Tab>
+  
+  <Tab title="Similarity">
+    **Interest Similarity**
+    ```
+    Cosine similarity between A's and C's SimClusters embeddings
+    ```
+    
+    **Engagement Similarity**
+    ```
+    Similarity based on users both A and C have engaged with
+    ```
+    
+    **Content Similarity**
+    ```
+    Similarity of tweet topics A engages with vs. C produces
+    ```
+  </Tab>
+</Tabs>
+
+## Where It's Used
+
+### Ranking Models
+
+GFS features are critical inputs to ranking models across X:
+
+<AccordionGroup>
+  <Accordion title="Heavy Ranker (Timeline)">
+    Uses graph features to score tweet candidates based on social proof and user similarity
+  </Accordion>
+  
+  <Accordion title="Follow Recommendation">
+    Ranks account recommendations using mutual follows and engagement overlap
+  </Accordion>
+  
+  <Accordion title="Notification Ranking">
+    Incorporates graph features to determine which notifications to send
+  </Accordion>
+  
+  <Accordion title="Search Ranking">
+    Personalizes search results using graph-based relevance features
+  </Accordion>
+</AccordionGroup>
+
+### Candidate Generation
+
+Some candidate sources use GFS features for filtering:
+- **Social Proof Filtering**: Only show tweets if enough of user's followings engaged
+- **Similarity Thresholding**: Filter out candidates below minimum similarity score
+
+## Performance Characteristics
+
+<Note>
+GFS is optimized for low-latency, high-throughput feature serving to support real-time ranking.
+</Note>
+
+**Key Metrics:**
+- **Latency**: Sub-millisecond p50, single-digit milliseconds p99
+- **Throughput**: Handles millions of requests per second
+- **Feature Count**: Returns dozens of features per user pair
+- **Cache Hit Rate**: High cache hit rate for frequently queried users
+
+## Architecture
+
+Location: `graph-feature-service/`
+
+### Components
+
+1. **Graph Storage**: In-memory or distributed graph representation
+2. **Feature Extractors**: Specialized modules for different feature types
+3. **Aggregators**: Efficiently compute counts and similarities
+4. **Caching Layer**: Cache frequently accessed features
+5. **API Server**: RESTful or Thrift API for feature requests
+
+### Data Sources
+
+GFS consumes data from:
+- **Follow Graph**: User follow relationships
+- **Real Graph**: Interaction predictions and aggregated engagements
+- **Engagement Events**: Favorites, retweets, clicks from UUA
+- **Embeddings**: SimClusters and TwHIN from Representation Manager
+
+<Tip>
+GFS acts as a bridge between raw graph data and machine learning models, providing pre-computed features at serving time.
+</Tip>
+
+## Related Components
+
+- [Real Graph](/models/real-graph) - Provides interaction scores used in GFS features
+- [SimClusters](/models/simclusters) - Embeddings used for similarity features
+- [Ranking Systems](/ml/ranking) - Consumes GFS features for ranking

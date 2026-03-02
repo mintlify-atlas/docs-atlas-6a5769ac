@@ -1,0 +1,308 @@
+---
+title: System architecture
+description: Overview of the components, services, and data flows that power X's recommendation system
+---
+
+# System architecture
+
+X's Recommendation Algorithm is built on a shared set of data sources, machine learning models, and software frameworks that power multiple product surfaces. This architecture enables code reuse, consistent quality, and rapid iteration across different recommendation experiences.
+
+## Architecture overview
+
+Product surfaces at X are built on three core layers:
+
+1. **Data Layer** - Real-time user actions, post metadata, and user signals
+2. **Model Layer** - Graph embeddings, ranking models, and content understanding
+3. **Service Layer** - Candidate generation, ranking, filtering, and serving
+
+<Note>
+  This modular architecture allows different product surfaces to leverage shared components while customizing for their specific use cases.
+</Note>
+
+## For You Timeline architecture
+
+The diagram below illustrates how major services and jobs interconnect to construct a For You Timeline:
+
+![System Architecture Diagram](/source/docs/system-diagram.png)
+
+The For You Timeline represents the most complex product surface, utilizing nearly all components in the recommendation system.
+
+## Data components
+
+The data layer provides foundational signals and storage for the recommendation system.
+
+| Component | Description | Location |
+|-----------|-------------|----------|
+| **Tweetypie** | Core service that handles the reading and writing of post data | `tweetypie/server/` |
+| **Unified User Actions** | Real-time stream of user actions on X | `unified_user_actions/` |
+| **User Signal Service** | Centralized platform to retrieve explicit (likes, replies) and implicit (profile visits, tweet clicks) user signals | `user-signal-service/` |
+
+### Tweetypie
+
+Tweetypie is the core tweet service that manages all tweet data operations. It provides:
+
+- Tweet creation, reading, and mutation APIs
+- Hydration of tweet metadata and features
+- Denormalization of tweet data for efficient serving
+- Caching and storage optimization
+
+Reference: `tweetypie/server/README.md`
+
+### Unified User Actions
+
+Provides a real-time stream of all user actions across X, including:
+
+- Favorites, retweets, replies, quotes
+- Follows, unfollows, mutes, blocks
+- Clicks, video views, profile visits
+- Notification opens and tab clicks
+
+This stream feeds into multiple downstream systems for real-time personalization.
+
+Reference: `unified_user_actions/README.md`
+
+### User Signal Service
+
+Centralizes retrieval of user signals used across recommendation systems:
+
+- **Explicit signals** - Direct user actions (likes, follows, bookmarks)
+- **Implicit signals** - Behavioral data (clicks, dwell time, video views)
+- Aggregated and filtered for privacy and quality
+
+Reference: `user-signal-service/README.md`
+
+## Model components
+
+The model layer includes graph-based algorithms, embeddings, and neural networks for understanding users and content.
+
+| Component | Description | Location |
+|-----------|-------------|----------|
+| **SimClusters** | Community detection and sparse embeddings into those communities | `src/scala/com/twitter/simclusters_v2/` |
+| **TwHIN** | Dense knowledge graph embeddings for Users and Posts | [the-algorithm-ml](https://github.com/twitter/the-algorithm-ml/blob/main/projects/twhin/README.md) |
+| **Trust and Safety Models** | Models for detecting NSFW or abusive content | `trust_and_safety_models/` |
+| **Real Graph** | Model to predict the likelihood of an X User interacting with another User | `src/scala/com/twitter/interaction_graph/` |
+| **TweepCred** | Page-Rank algorithm for calculating X User reputation | `src/scala/com/twitter/graph/batch/job/tweepcred/` |
+| **Recos Injector** | Streaming event processor for building input streams for GraphJet based services | `recos-injector/` |
+| **Graph Feature Service** | Serves graph features for a directed pair of users | `graph-feature-service/` |
+| **Topic Social Proof** | Identifies topics related to individual posts | `topic-social-proof/` |
+| **Representation Scorer** | Compute scores between pairs of entities using embedding similarity | `representation-scorer/` |
+
+### SimClusters
+
+SimClusters is a general-purpose representation layer based on overlapping communities. It provides:
+
+- **KnownFor** - Which communities a producer (account) is known for
+- **InterestedIn** - Which communities a consumer (user) is interested in
+- **Tweet embeddings** - Community representation of tweets based on favs
+- **Topic embeddings** - Community representation of topics
+
+SimClusters covers the top 20M producers and ~145K communities, enabling:
+- Consumer-based tweet recommendations
+- Producer-based tweet recommendations
+- Tweet similarity calculations
+- Topic-based content discovery
+
+Reference: `src/scala/com/twitter/simclusters_v2/README.md`
+
+<Info>
+  SimClusters was published at KDD 2020. Read the [research paper](https://www.kdd.org/kdd2020/accepted-papers/view/simclusters-community-based-representations-for-heterogeneous-recommendatio) for technical details.
+</Info>
+
+### TwHIN
+
+Twitter Heterogeneous Information Network (TwHIN) provides dense graph embeddings learned from the full user-tweet interaction graph. Unlike SimClusters' sparse community-based embeddings, TwHIN creates dense vector representations that capture fine-grained relationships.
+
+### Real Graph
+
+Predicts the probability that one user will interact with another user, used for:
+- Follow recommendations
+- Out-of-network content discovery
+- Social graph understanding
+
+Reference: `src/scala/com/twitter/interaction_graph/README.md`
+
+## Software frameworks
+
+The service layer provides frameworks for building, serving, and monitoring recommendation systems.
+
+| Component | Description | Location |
+|-----------|-------------|----------|
+| **Navi** | High performance, machine learning model serving written in Rust | `navi/` |
+| **Product Mixer** | Software framework for building feeds of content | `product-mixer/` |
+| **Timelines Aggregation Framework** | Framework for generating aggregate features in batch or real time | `timelines/data_processing/ml_util/aggregation_framework/` |
+| **Representation Manager** | Service to retrieve embeddings (SimClusters and TwHIN) | `representation-manager/` |
+| **TWML** | Legacy machine learning framework built on TensorFlow v1 | `twml/` |
+
+### Product Mixer
+
+Product Mixer is the core framework for building recommendation products. It provides:
+
+- **Pipelines** - Structured execution flow (Product → Mixer → Candidate → Scoring)
+- **Components** - Reusable building blocks for candidate sources, filters, scorers
+- **Composition** - Mix heterogeneous content (tweets, ads, users)
+- **Monitoring** - Built-in observability and debugging
+
+All modern recommendation surfaces (For You, Following, Notifications) are built on Product Mixer.
+
+Reference: `product-mixer/README.md`
+
+### Navi
+
+High-performance model serving infrastructure written in Rust:
+
+- Serves TensorFlow, PyTorch, and ONNX models
+- Optimized for low latency and high throughput
+- Powers real-time ranking in the recommendation pipeline
+
+Reference: `navi/README.md`
+
+## For You Timeline components
+
+The For You Timeline uses specialized components for each stage of the recommendation pipeline.
+
+### Candidate sources
+
+| Component | Description | Contribution |
+|-----------|-------------|-------------|
+| **Search Index (Earlybird)** | Find and rank In-Network posts | ~50% of posts |
+| **Tweet Mixer** | Coordination layer for fetching Out-of-Network tweet candidates | Variable |
+| **User Tweet Entity Graph (UTEG)** | Maintains an in-memory User to Post interaction graph, finds candidates via graph traversals | Significant |
+| **Follow Recommendation Service (FRS)** | Provides recommendations for accounts to follow and posts from those accounts | Supplementary |
+
+#### Search Index (Earlybird)
+
+Earlybird is X's real-time search engine, providing:
+
+- Inverted index of recent tweets
+- In-network tweet retrieval
+- Light Ranker scoring for initial ranking
+- Powers ~50% of For You Timeline content
+
+Reference: `src/java/com/twitter/search/README.md`
+
+#### User Tweet Entity Graph (UTEG)
+
+Built on the GraphJet framework, UTEG maintains an in-memory graph of user-tweet interactions:
+
+- Real-time updates from user actions
+- Graph traversal for candidate generation
+- Supports multiple edge types (favorite, retweet, reply)
+- Enables collaborative filtering at scale
+
+Reference: `src/scala/com/twitter/recos/user_tweet_entity_graph/README.md`
+
+### Ranking components
+
+| Component | Description | Location |
+|-----------|-------------|----------|
+| **Light Ranker** | Light Ranker model used by search index (Earlybird) to rank posts | `src/python/twitter/deepbird/projects/timelines/scripts/models/earlybird/` |
+| **Heavy Ranker** | Neural network for ranking candidate posts. Main signal for selecting timeline posts | [the-algorithm-ml](https://github.com/twitter/the-algorithm-ml/blob/main/projects/home/recap/README.md) |
+
+#### Heavy Ranker
+
+The Heavy Ranker is a deep neural network that:
+
+- Uses approximately **6,000 features** per tweet
+- Predicts multiple engagement types (like, retweet, reply, etc.)
+- Multi-task learning to optimize for various objectives
+- Primary determinant of final tweet ranking
+
+### Mixing and filtering
+
+| Component | Description | Location |
+|-----------|-------------|----------|
+| **Home Mixer** | Main service to construct and serve the Home Timeline. Built on Product Mixer | `home-mixer/` |
+| **Visibility Filters** | Filters content for legal compliance, product quality, user trust, and revenue protection | `visibilitylib/` |
+| **Timeline Ranker** | Legacy service providing relevance-scored posts from Earlybird and UTEG | `timelineranker/` |
+
+#### Home Mixer
+
+Home Mixer orchestrates the entire For You Timeline construction:
+
+1. Fetches candidates from multiple sources in parallel
+2. Hydrates features for ranking
+3. Applies Heavy Ranker scoring
+4. Filters and applies heuristics (diversity, balance, feedback)
+5. Mixes tweets with ads, who-to-follow modules, prompts
+6. Adds product features (conversation modules, social context)
+
+Reference: `home-mixer/README.md`
+
+#### Visibility Filters
+
+Ensures content safety and quality through:
+
+- Hard filtering (blocked, muted authors)
+- Legal compliance (DMCA, country-specific restrictions)
+- NSFW content filtering based on user settings
+- Abusive content detection
+- Coarse-grained downranking for quality
+
+Reference: `visibilitylib/README.md`
+
+## Recommended Notifications
+
+Recommended Notifications use a similar but specialized architecture:
+
+| Component | Description | Location |
+|-----------|-------------|----------|
+| **PushService** | Main recommendation service for surfacing recommendations via notifications | `pushservice/` |
+| **PushService Light Ranker** | Pre-selects highly-relevant candidates from initial pool | `pushservice/src/main/python/models/light_ranking/` |
+| **PushService Heavy Ranker** | Multi-task learning model predicting open and engagement probabilities | `pushservice/src/main/python/models/heavy_ranking/` |
+
+Reference: `pushservice/README.md`
+
+## Data flow
+
+The typical data flow through the system:
+
+<Steps>
+  <Step title="User action">
+    User performs an action (like, retweet, click) on X
+  </Step>
+  <Step title="Unified User Actions">
+    Action is captured in real-time stream
+  </Step>
+  <Step title="Model updates">
+    Streaming jobs update graph structures (UTEG) and embeddings (SimClusters tweets)
+  </Step>
+  <Step title="Candidate generation">
+    User requests timeline → Multiple candidate sources generate candidates in parallel
+  </Step>
+  <Step title="Feature hydration">
+    Candidates enriched with ~6,000 features from various services
+  </Step>
+  <Step title="Ranking">
+    Heavy Ranker scores all candidates using neural network
+  </Step>
+  <Step title="Filtering & mixing">
+    Apply filters, heuristics, and mix with ads/modules
+  </Step>
+  <Step title="Serving">
+    Return final timeline to client with social context and metadata
+  </Step>
+</Steps>
+
+<Warning>
+  Many components operate in real-time with strict latency requirements (typically under 1 second for timeline requests).
+</Warning>
+
+## Scalability
+
+The architecture handles massive scale:
+
+- **~1 billion tweets** evaluated down to thousands of candidates
+- **~145K communities** in SimClusters covering 20M producers
+- **Real-time updates** to graphs and embeddings
+- **Billions of requests** daily across product surfaces
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="How it works" icon="gears" href="/how-it-works">
+    Learn how these components work together in the recommendation pipeline
+  </Card>
+  <Card title="Core services" icon="server" href="/services/home-mixer">
+    Deep dive into individual services and their APIs
+  </Card>
+</CardGroup>
